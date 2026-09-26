@@ -1,0 +1,34 @@
+import { createContext } from "react";
+
+export type PageKey =
+  | "dashboard"
+  | "conferences"
+  | "conference-detail"
+  | "conference-form"
+  | "papers"
+  | "paper-detail"
+  | "paper-form"
+  | "reviews"
+  | "review-detail"
+  | "sessions"
+  | "session-form"
+  | "participants"
+  | "certificates"
+  | "messages"
+  | "users"
+  | "audit-logs"
+  | "profile";
+
+export interface RouteState {
+  page: PageKey;
+  params: Record<string, string>;
+}
+
+export interface RouterContextValue {
+  route: RouteState;
+  navigate: (page: PageKey, params?: Record<string, string>) => void;
+}
+
+export const RouterContext = createContext<RouterContextValue | undefined>(
+  undefined,
+);
