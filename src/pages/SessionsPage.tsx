@@ -1,4 +1,6 @@
-import { useEffect, useState } from "react";
+import { DateInput } from "@/components/ui/DateInput";
+import { useEffect, useRef, useState } from "react";
+import { toLocalDateTimeInput } from "@/lib/dateInput";
 import {
   Plus,
   Clock,
@@ -38,6 +40,7 @@ export function SessionsPage() {
   const [papers, setPapers] = useState<Paper[]>([]);
   const [speakers, setSpeakers] = useState<Profile[]>([]);
   const [saving, setSaving] = useState(false);
+  const paperRequest = useRef(0);
 
   const [managedIds, setManagedIds] = useState<Set<string>>(new Set());
   const canEdit = managedIds.size > 0;
@@ -65,7 +68,7 @@ export function SessionsPage() {
       const { data: profs } = await supabase
         .from("profile_directory")
         .select("*")
-        .in("role", ["admin", "organizer", "author", "participant"])
+        .in("role", ["admin", "organizer", "author", "reviewer", "participant"])
         .order("full_name");
       if (profs && !cancelled) setSpeakers(profs as unknown as Profile[]);
     })();
@@ -87,19 +90,24 @@ export function SessionsPage() {
   }
 
   async function loadPapers(confId: string) {
+    const request = ++paperRequest.current;
+    setPapers([]);
     if (!confId) {
       setPapers([]);
       return;
     }
-    const { data } = await supabase
+    const { data, error } = await supabase
       .rpc('read_papers')
       .eq("conference_id", confId)
       .select("*")
       .order("title");
-    if (data) setPapers(data as unknown as Paper[]);
+    if (request !== paperRequest.current) return;
+    if (error) showToast("error", "Không thể tải bài báo của hội thảo");
+    else setPapers((data ?? []) as unknown as Paper[]);
   }
 
   function openCreate() {
+    paperRequest.current++;
     if (!canEdit) return;
     setEditingSession(null);
     setConferenceId("");
@@ -120,8 +128,8 @@ export function SessionsPage() {
     setConferenceId(session.conference_id);
     setTitle(session.title);
     setDescription(session.description ?? "");
-    setStartTime(session.start_time.slice(0, 16));
-    setEndTime(session.end_time.slice(0, 16));
+    setStartTime(toLocalDateTimeInput(session.start_time));
+    setEndTime(toLocalDateTimeInput(session.end_time));
     setRoom(session.room ?? "");
     setSpeakerId(session.speaker_id ?? "");
     setPaperId(session.paper_id ?? "");
@@ -130,6 +138,7 @@ export function SessionsPage() {
   }
 
   async function handleSave() {
+    if (saving) return;
     if (!managedIds.has(conferenceId) || (editingSession && !managedIds.has(editingSession.conference_id))) {
       showToast('error', 'Bạn không có quyền quản lý lịch trình hội thảo này');
       return;
@@ -143,6 +152,7 @@ export function SessionsPage() {
       return;
     }
     setSaving(true);
+    try {
     const payload = {
       conference_id: conferenceId,
       title: title.trim(),
@@ -176,7 +186,11 @@ export function SessionsPage() {
         load();
       }
     }
-    setSaving(false);
+    } catch {
+      showToast("error", "Không thể lưu lịch trình. Vui lòng thử lại.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleDelete(id: string) {
@@ -303,11 +317,11 @@ export function SessionsPage() {
 
       <Modal
         open={modalOpen}
-        onClose={() => setModalOpen(false)}
+        onClose={() => { if (!saving) setModalOpen(false); }}
         title={editingSession ? "Chỉnh sửa phiên" : "Tạo phiên mới"}
         size="md"
       >
-        <div className="space-y-4">
+        <fieldset disabled={saving} className="space-y-4">
           <Select
             label="Hội thảo *"
             value={conferenceId}
@@ -336,18 +350,18 @@ export function SessionsPage() {
             onChange={(e) => setDescription(e.target.value)}
           />
           <div className="grid grid-cols-2 gap-4">
-            <Input
+            <DateInput
               label="Bắt đầu *"
               type="datetime-local"
               value={startTime}
-              onChange={(e) => setStartTime(e.target.value)}
-            />
-            <Input
+              onValueChange={setStartTime}
+             />
+            <DateInput
               label="Kết thúc *"
               type="datetime-local"
               value={endTime}
-              onChange={(e) => setEndTime(e.target.value)}
-            />
+              onValueChange={setEndTime}
+             />
           </div>
           <Input
             label="Phòng"
@@ -386,7 +400,7 @@ export function SessionsPage() {
               {saving ? "Đang lưu..." : "Lưu"}
             </Button>
           </div>
-        </div>
+        </fieldset>
       </Modal>
     </div>
   );

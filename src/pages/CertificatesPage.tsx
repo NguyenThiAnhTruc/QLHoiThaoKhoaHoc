@@ -76,6 +76,7 @@ export function CertificatesPage() {
   }, [selectedConf, certType, issueModalOpen]);
 
   async function handleIssue() {
+    if (issuing) return;
     if (!canManage(selectedConf)) {
       showToast('error', 'Bạn không có quyền cấp chứng nhận cho hội thảo này');
       return;
@@ -86,6 +87,7 @@ export function CertificatesPage() {
       return;
     }
     setIssuing(true);
+    try {
     const { data: issued, error } = await supabase.rpc("issue_certificates_bulk", {
       conf_id: selectedConf, cert_type: certType, recipient_ids: ids,
     });
@@ -100,7 +102,11 @@ export function CertificatesPage() {
       setIssueModalOpen(false);
       load();
     }
-    setIssuing(false);
+    } catch {
+      showToast("error", "Không thể cấp chứng nhận. Vui lòng thử lại.");
+    } finally {
+      setIssuing(false);
+    }
   }
 
   function downloadCertificate(cert: Certificate) {
@@ -236,7 +242,7 @@ export function CertificatesPage() {
 
       <Modal
         open={issueModalOpen}
-        onClose={() => setIssueModalOpen(false)}
+        onClose={() => { if (!issuing) setIssueModalOpen(false); }}
         title="Cấp chứng nhận"
         size="md"
       >
@@ -282,7 +288,7 @@ export function CertificatesPage() {
           </p>
           {selectedConf && <p className="text-sm text-slate-500">{loadingRecipients ? 'Đang tải người đủ điều kiện...' : participants.length === 0 ? 'Không có người đủ điều kiện chưa được cấp loại chứng nhận này.' : `${participants.length} người đủ điều kiện`}</p>}
           <div className="flex justify-end gap-3">
-            <Button variant="outline" onClick={() => setIssueModalOpen(false)}>
+            <Button variant="outline" disabled={issuing} onClick={() => setIssueModalOpen(false)}>
               Hủy
             </Button>
             <Button onClick={handleIssue} disabled={issuing || loadingRecipients || (!selectedUser && !selectedUsers.length)}>

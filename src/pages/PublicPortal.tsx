@@ -30,7 +30,10 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { supabase } from "@/lib/supabase";
 import { showToast } from "@/components/ui/toastStore";
-import { getConferenceDisplayStatus } from "@/lib/constants";
+import {
+  getConferenceDisplayStatus,
+  isConferenceRegistrationOpen,
+} from "@/lib/constants";
 import type {
   Conference,
   ConferenceAnnouncement,
@@ -1504,11 +1507,7 @@ function startOfToday() {
   return date;
 }
 function isRegistrationOpen(conference: Conference) {
-  return (
-    getConferenceDisplayStatus(conference) === "open" &&
-    (!conference.registration_deadline ||
-      new Date(conference.registration_deadline) >= new Date())
-  );
+  return isConferenceRegistrationOpen(conference);
 }
 function isSubmissionOpen(conference: Conference) {
   return (

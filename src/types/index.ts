@@ -55,6 +55,7 @@ export interface Conference {
   registration_deadline: string | null;
   camera_ready_deadline: string | null;
   blind_review: boolean;
+  field: string | null;
   topics: string[];
   event_format: EventFormat;
   is_featured: boolean;

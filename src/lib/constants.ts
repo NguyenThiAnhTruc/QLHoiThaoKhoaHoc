@@ -32,15 +32,17 @@ export const CONFERENCE_STATUS_COLORS: Record<ConferenceStatus, string> = {
   cancelled: "bg-rose-100 text-rose-700",
 };
 
-export function getConferenceDisplayStatus(conference: {
-  status: ConferenceStatus;
-  start_date: string;
-  end_date: string;
-  registration_deadline?: string | null;
-}): ConferenceStatus {
+export function getConferenceDisplayStatus(
+  conference: {
+    status: ConferenceStatus;
+    start_date: string;
+    end_date: string;
+    registration_deadline?: string | null;
+  },
+  now = new Date(),
+): ConferenceStatus {
   if (conference.status === "draft" || conference.status === "cancelled")
     return conference.status;
-  const now = new Date();
   const start = conferenceDate(conference.start_date, false);
   const end = conferenceDate(conference.end_date, true);
   if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()))
@@ -57,17 +59,34 @@ export function getConferenceDisplayStatus(conference: {
   return "completed";
 }
 
+export function isConferenceRegistrationOpen(
+  conference: {
+    status: ConferenceStatus;
+    start_date: string;
+    end_date: string;
+    registration_deadline?: string | null;
+  },
+  now = new Date(),
+) {
+  return (
+    getConferenceDisplayStatus(conference, now) === "open" &&
+    now < conferenceDate(conference.start_date, false) &&
+    (!conference.registration_deadline ||
+      now <= new Date(conference.registration_deadline))
+  );
+}
+
 function conferenceDate(value: string, endOfDay: boolean) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return new Date(value);
   return new Date(`${value}T${endOfDay ? "23:59:59.999" : "00:00:00"}`);
 }
 
 export const PAPER_STATUS_LABELS: Record<PaperStatus, string> = {
-  submitted: "Đã nộp",
+  submitted: "Chờ phân công",
   under_review: "Đang phản biện",
   accepted: "Đã chấp nhận",
   rejected: "Đã từ chối",
-  revision_required: "Cần sửa đổi",
+  revision_required: "Chờ sửa đổi",
 };
 
 export const PAPER_STATUS_COLORS: Record<PaperStatus, string> = {
@@ -127,11 +146,11 @@ export const ALL_CONFERENCE_STATUSES: ConferenceStatus[] = [
 ];
 
 export const ALL_PAPER_STATUSES: PaperStatus[] = [
-  "submitted",
-  "under_review",
   "accepted",
   "rejected",
   "revision_required",
+  "under_review",
+  "submitted",
 ];
 
 export const ALL_RECOMMENDATIONS: ReviewRecommendation[] = [

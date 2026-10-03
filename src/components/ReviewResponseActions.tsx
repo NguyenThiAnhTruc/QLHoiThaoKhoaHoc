@@ -30,7 +30,7 @@ export function ReviewResponseActions({
       if (error) {
         const message =
           error.code === "42883" || error.code === "PGRST202"
-            ? "Database chưa triển khai luồng reviewer. Hãy chạy migration 20260925_reviewer_workflow.sql trong Supabase SQL Editor."
+            ? "Database chưa triển khai luồng reviewer. Hãy chạy migration conference_updates.sql trong Supabase SQL Editor."
             : error.code === "42501"
               ? "Tài khoản reviewer chưa có quyền phản hồi phân công. Hãy kiểm tra RLS và migration reviewer."
               : error.message;

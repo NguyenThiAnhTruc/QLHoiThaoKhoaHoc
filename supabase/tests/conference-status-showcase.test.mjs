@@ -1,12 +1,8 @@
+import { readSqlSection } from './sqlSections.mjs';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { PGlite } from '@electric-sql/pglite';
 
-const migrationUrl = new URL(
-  '../migrations/20260925_conference_status_showcase.sql',
-  import.meta.url,
-);
 
 test('conference showcase covers every status and is idempotent', async () => {
   const db = new PGlite();
@@ -56,12 +52,33 @@ test('conference showcase covers every status and is idempotent', async () => {
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now()
     );
+    CREATE TABLE public.reviews (
+      id uuid PRIMARY KEY,
+      paper_id uuid NOT NULL REFERENCES public.papers(id) ON DELETE CASCADE,
+      reviewer_id uuid NOT NULL REFERENCES public.profiles(id),
+      status text NOT NULL DEFAULT 'assigned',
+      score integer,
+      originality_score integer,
+      relevance_score integer,
+      methodology_score integer,
+      presentation_score integer,
+      comments text DEFAULT '',
+      recommendation text,
+      response_at timestamptz,
+      completed_at timestamptz,
+      UNIQUE (paper_id, reviewer_id)
+    );
     INSERT INTO public.profiles (id, full_name, role) VALUES
       ('00000000-0000-0000-0000-000000000001', 'Ban tổ chức', 'organizer'),
       ('00000000-0000-0000-0000-000000000002', 'Tác giả', 'author');
   `);
 
-  const migration = await readFile(migrationUrl, 'utf8');
+  await db.exec(`
+    INSERT INTO public.profiles (id, full_name, role)
+    VALUES ('00000000-0000-0000-0000-000000000003', 'Reviewer', 'reviewer');
+  `);
+
+  const migration = await readSqlSection('20260925_conference_status_showcase', 'conference_demo_data.sql');
   await db.exec(migration);
   await db.exec(migration);
 
@@ -101,6 +118,18 @@ test('conference showcase covers every status and is idempotent', async () => {
       { status: 'under_review', count: 2 },
     ],
   );
+
+  const inconsistentResults = await db.query(`
+    SELECT count(*)::integer AS count
+    FROM public.papers p
+    WHERE p.id::text LIKE 'd0000000-%'
+      AND p.status IN ('accepted', 'rejected', 'revision_required')
+      AND NOT EXISTS (
+        SELECT 1 FROM public.reviews r
+        WHERE r.paper_id = p.id AND r.status = 'completed'
+      )
+  `);
+  assert.equal(inconsistentResults.rows[0].count, 0);
 
   const missingPapers = await db.query(`
     SELECT count(*)::integer AS count

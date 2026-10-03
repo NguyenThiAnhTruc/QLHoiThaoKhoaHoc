@@ -1,6 +1,6 @@
 # Cập nhật chức năng admin
 
-Chạy `migrations/20260924_admin_management.sql` trong Supabase SQL Editor trước khi sử dụng nút chuyển chủ hội thảo. Không chạy lại toàn bộ file khởi tạo trên database đang sử dụng.
+Chạy `migrations/conference_updates.sql` trong Supabase SQL Editor trước khi sử dụng nút chuyển chủ hội thảo. Không chạy lại toàn bộ file khởi tạo trên database đang sử dụng.
 
 - Chuyển chủ: mở chi tiết hội thảo, chọn **Chuyển chủ hội thảo**, chọn tài khoản admin hoặc ban tổ chức rồi xác nhận. Database kiểm tra quyền, phát hiện chủ đã thay đổi và ghi audit log trong cùng transaction.
 - Lịch sử quản trị: tìm kiếm toàn bộ lịch sử, lọc hành động, phân trang 25 dòng và bấm tên hành động để xem chi tiết.

@@ -4,7 +4,6 @@ import {
   CalendarClock as ScheduleIcon,
   CalendarDays,
   ClipboardCheck,
-  ClipboardList,
   FileText,
   LayoutDashboard,
   LogOut,
@@ -56,6 +55,7 @@ const managementItems: NavItem[] = [
     key: "sessions",
     label: "Lịch trình",
     icon: <ScheduleIcon className="h-5 w-5" />,
+    roles: ["admin", "organizer", "reviewer", "participant"],
   },
   {
     key: "participants",
@@ -74,12 +74,6 @@ const systemItems: NavItem[] = [
     key: "users",
     label: "Tài khoản",
     icon: <Users className="h-5 w-5" />,
-    roles: ["admin"],
-  },
-  {
-    key: "audit-logs",
-    label: "Audit log",
-    icon: <ClipboardList className="h-5 w-5" />,
     roles: ["admin"],
   },
 ];
@@ -111,7 +105,8 @@ export function Layout({ children }: { children: ReactNode }) {
     label:
       personal && item.key === "certificates"
         ? "Chứng nhận của tôi"
-        : (profile?.role === "author" || profile?.role === "reviewer") && item.key === "reviews"
+        : (profile?.role === "author" || profile?.role === "reviewer") &&
+            item.key === "reviews"
           ? "Phản biện được giao"
           : item.label,
   }));

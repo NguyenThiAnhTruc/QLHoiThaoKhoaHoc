@@ -16,7 +16,6 @@ export type PageKey =
   | "certificates"
   | "messages"
   | "users"
-  | "audit-logs"
   | "profile";
 
 export interface RouteState {
@@ -26,6 +25,8 @@ export interface RouteState {
 
 export interface RouterContextValue {
   route: RouteState;
+  formRoute: RouteState | null;
+  closeForm: () => void;
   navigate: (page: PageKey, params?: Record<string, string>) => void;
 }
 

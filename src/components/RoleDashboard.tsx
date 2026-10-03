@@ -27,6 +27,7 @@ export function RoleDashboard() {
   const { profile } = useAuth();
   const { navigate } = useRouter();
   const organizer = profile?.role === "organizer";
+  const author = profile?.role === "author";
   const [conferences, setConferences] = useState<Conference[]>([]);
   const [papers, setPapers] = useState<Paper[]>([]);
   const [people, setPeople] = useState(0);
@@ -250,7 +251,7 @@ export function RoleDashboard() {
               </Card>
             ))}
           </div>
-          <div className="flex flex-wrap gap-2">
+          {!author && <div className="flex flex-wrap gap-2">
             {organizer ? (
               <>
                 <Button variant="outline" onClick={() => navigate("sessions")}>
@@ -285,7 +286,7 @@ export function RoleDashboard() {
                 </Button>
               </>
             )}
-          </div>
+          </div>}
           <div className="grid items-start gap-6 xl:grid-cols-2">
             <Card className="overflow-hidden">
               <h2 className="border-b border-slate-200 p-5 font-semibold">

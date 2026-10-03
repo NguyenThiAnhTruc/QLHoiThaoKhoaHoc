@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, Save, Search } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { withRequestTimeout } from "@/lib/requestTimeout";
 import { useRouter } from "@/context/useRouter";
 import { useAuth } from "@/context/useAuth";
 import { Button } from "@/components/ui/Button";
@@ -11,6 +12,7 @@ import type { Conference, Profile } from "@/types";
 interface PaperFormPageProps {
   embedded?: boolean;
   editId?: string;
+  initialConferenceId?: string;
   onCancel?: () => void;
   onSaved?: () => void;
   onSubmittingChange?: (submitting: boolean) => void;
@@ -19,6 +21,7 @@ interface PaperFormPageProps {
 export function PaperFormPage({
   embedded = false,
   editId: providedEditId,
+  initialConferenceId,
   onCancel,
   onSaved,
   onSubmittingChange,
@@ -27,9 +30,9 @@ export function PaperFormPage({
   const { profile } = useAuth();
   const editId = providedEditId ?? (!embedded ? route.params.id : undefined);
   const isEdit = !!editId;
-  const requestedConferenceId = embedded
+  const requestedConferenceId = initialConferenceId ?? (embedded
     ? undefined
-    : route.params.conferenceId;
+    : route.params.conferenceId);
 
   const [conferences, setConferences] = useState<Conference[]>([]);
   const [conferenceId, setConferenceId] = useState(requestedConferenceId ?? "");
@@ -43,6 +46,8 @@ export function PaperFormPage({
   const [selectedAuthorIds, setSelectedAuthorIds] = useState<string[]>([]);
   const [authorSearch, setAuthorSearch] = useState("");
   const [loading, setLoading] = useState(false);
+  const [saveStage, setSaveStage] = useState("");
+  const [saveError, setSaveError] = useState("");
   const [fetching, setFetching] = useState(true);
   const submissionId = useRef(crypto.randomUUID());
   const [expectedUpdatedAt, setExpectedUpdatedAt] = useState<string | null>(null);
@@ -150,33 +155,35 @@ export function PaperFormPage({
       showToast("error", "Vui lòng chọn hội thảo, nhập tiêu đề, tóm tắt và file bài báo");
       return;
     }
-    const conference = conferences.find((item) => item.id === conferenceId);
-    if (conference?.blind_review && !paperFile && /^https?:\/\//i.test(fileUrl)) {
-      showToast("error", "Hội thảo phản biện ẩn danh yêu cầu tải lên file PDF");
-      return;
-    }
     submitting.current = true;
     setLoading(true);
+    setSaveError("");
     try {
+      setSaveStage(paperFile ? "Đang tải PDF..." : "Đang lưu...");
       const uploadedUrl = await uploadPaperFile();
       if (paperFile && !uploadedUrl) return;
-      const { data, error } = await supabase.rpc("save_paper_submission", {
+      setSaveStage("Đang lưu bài báo...");
+      const { data, error } = await withRequestTimeout((signal) => supabase.rpc("save_paper_submission", {
         target_paper_id: editId ?? submissionId.current,
         target_conference_id: conferenceId,
         paper_title: title.trim(), paper_abstract: abstract.trim(),
         paper_keywords: keywords.trim(), paper_file: uploadedUrl ?? fileUrl.trim(),
         author_ids: selectedAuthorIds, version_notes: versionNotes.trim(),
         expected_updated_at: expectedUpdatedAt,
-      });
+      }).abortSignal(signal), 60_000,
+        "Chưa nhận được kết quả lưu bài sau 60 giây. Hãy kiểm tra kết nối và tải lại bài để xác nhận dữ liệu trước khi lưu lại.");
       if (error) {
+        setSaveError("Không thể lưu bài: " + error.message);
         showToast("error", "Không thể lưu bài: " + error.message);
         return;
       }
       showToast("success", isEdit ? "Đã cập nhật bài báo và phiên bản" : "Nộp bài báo thành công");
       if (onSaved) onSaved();
       else navigate("paper-detail", { id: data as string });
-    } catch {
-      showToast("error", "Không thể hoàn tất lưu bài. Vui lòng thử lại.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Không thể hoàn tất lưu bài. Vui lòng thử lại.";
+      setSaveError(message);
+      showToast("error", message);
     } finally {
       submitting.current = false;
       setLoading(false);
@@ -209,11 +216,14 @@ export function PaperFormPage({
       return null;
     }
     const storagePath = `${profile.id}/${crypto.randomUUID()}-${slugify(paperFile.name)}.pdf`;
-    const { error } = await supabase.storage
+    // This Storage SDK cannot abort uploads; a late upload must not continue to save the paper.
+    const { error } = await withRequestTimeout(() => supabase.storage
       .from("paper-files")
-      .upload(storagePath, paperFile, { upsert: false });
+      .upload(storagePath, paperFile, { upsert: false }), 120_000,
+        "Tải PDF quá thời gian chờ 2 phút. Hãy kiểm tra kết nối rồi thử lưu lại.");
 
     if (error) {
+      setSaveError("Upload file thất bại: " + error.message);
       showToast("error", "Upload file thất bại: " + error.message);
       return null;
     }
@@ -286,6 +296,7 @@ export function PaperFormPage({
             : "space-y-5 rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
         }
       >
+        {saveError && <p role="alert" className="text-sm text-rose-700">{saveError}</p>}
         <fieldset disabled={loading} className="space-y-5">
         <p className="text-sm text-slate-500">Tải lên PDF hoặc nhập URL file. File tải lên được ưu tiên. Mỗi file mới được lưu thành một phiên bản riêng.</p>
         <Select
@@ -416,7 +427,7 @@ export function PaperFormPage({
             Hủy
           </Button>
           <Button type="submit" disabled={loading}>
-            <Save className="h-4 w-4" /> {loading ? "Đang lưu..." : "Lưu"}
+            <Save className="h-4 w-4" /> {loading ? saveStage : "Lưu"}
           </Button>
         </div>
         </fieldset>
