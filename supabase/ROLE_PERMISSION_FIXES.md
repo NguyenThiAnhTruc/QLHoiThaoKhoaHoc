@@ -6,7 +6,7 @@
    `supabase functions deploy paper-download --project-ref <project-ref>`.
    Hàm dùng `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
    do môi trường Supabase cung cấp; không đưa service-role key vào frontend.
-2. Chạy toàn bộ `migrations/20260923_role_permissions.sql` trong SQL Editor.
+2. Chạy toàn bộ `migrations/conference_updates.sql` trong SQL Editor.
    Migration chạy trong transaction, không sửa hoặc xóa dữ liệu hiện có.
 3. Deploy frontend cùng bản sửa này. Frontend đọc bài bằng RPC `read_papers`
    và lấy quyền hội thảo bằng `managed_conferences`.

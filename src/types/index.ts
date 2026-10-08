@@ -55,6 +55,11 @@ export interface Conference {
   registration_deadline: string | null;
   camera_ready_deadline: string | null;
   blind_review: boolean;
+  review_enabled?: boolean;
+  require_accepted_paper?: boolean;
+  auto_certificates?: boolean;
+  auto_surveys?: boolean;
+  field: string | null;
   topics: string[];
   event_format: EventFormat;
   is_featured: boolean;
@@ -65,6 +70,15 @@ export interface Conference {
   created_at: string;
   updated_at: string;
   organizer?: Profile;
+}
+
+export interface ConferenceTopic {
+  id: string;
+  conference_id: string;
+  name: string;
+  description: string;
+  created_by: string | null;
+  created_at: string;
 }
 
 export interface Participant {
@@ -91,6 +105,11 @@ export interface ConferenceStaff {
 }
 
 export interface Paper {
+  author_participation_status?: "participating" | "not_participating";
+  problem_statement?: string;
+  objectives?: string;
+  author_group?: string;
+  corresponding_author_id?: string | null;
   id: string;
   conference_id: string;
   title: string;
@@ -113,6 +132,7 @@ export interface PaperAuthor {
   paper_id: string;
   user_id: string;
   author_order: number;
+  participation_status: "participating" | "not_participating";
   user?: Profile;
 }
 
@@ -137,6 +157,10 @@ export interface Review {
 }
 
 export interface Session {
+  tags?: string[];
+  difficulty?: "general" | "beginner" | "advanced";
+  resource_deadline?: string | null;
+  parent_session_id?: string | null;
   id: string;
   conference_id: string;
   title: string;
@@ -144,21 +168,67 @@ export interface Session {
   start_time: string;
   end_time: string;
   room: string;
+  committee_id: string | null;
   speaker_id: string | null;
   paper_id: string | null;
   created_at: string;
   speaker?: Profile;
   paper?: Paper;
   conference?: Conference;
+  committee?: ConferenceCommittee;
+}
+
+export interface ConferenceCommittee {
+  id: string;
+  conference_id: string;
+  name: string;
+  room: string;
+  description: string;
+  created_at: string;
+}
+
+export type FeePaymentStatus = "pending" | "accepted" | "rejected";
+
+export interface ConferenceFund {
+  id: string;
+  conference_id: string;
+  name: string;
+  amount: number;
+  description: string;
+  created_by: string;
+  created_at: string;
+  conference?: Conference;
+}
+
+export interface FeePayment {
+  id: string;
+  fund_id: string;
+  conference_id: string;
+  payer_id: string;
+  amount: number;
+  purpose: string;
+  proof_url: string;
+  status: FeePaymentStatus;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  review_notes: string;
+  created_at: string;
+  fund?: ConferenceFund;
+  conference?: Conference;
 }
 
 export interface Certificate {
+  attendance_minutes?: number;
+  pdf_path?: string | null;
   id: string;
   certificate_number: string;
   conference_id: string;
   user_id: string;
   certificate_type: CertificateType;
   issued_at: string;
+  signature_hash?: string | null;
+  paper_id?: string | null;
+  paper?: Paper;
   user?: Profile;
   conference?: Conference;
 }

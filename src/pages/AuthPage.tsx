@@ -56,7 +56,7 @@ export function AuthPage() {
     getRememberLoginPreference,
   );
 
-  const signupRoles: UserRole[] = ["participant", "author"];
+  const signupRoles: UserRole[] = ["participant", "author", "reviewer"];
   const isSignup = mode === "signup";
   const isForgot = mode === "forgot";
   const passwordChecks = [

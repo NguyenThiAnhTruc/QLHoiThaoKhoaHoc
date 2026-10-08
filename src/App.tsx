@@ -1,15 +1,21 @@
-﻿import { AuthProvider } from "@/context/AuthContext";
+﻿import { SpeakerPage } from "@/pages/SpeakerPage";
+import { ResourcesPage } from "@/pages/ResourcesPage";
+import { SessionDetailPage } from "@/pages/SessionDetailPage";
+import { AuthProvider } from "@/context/AuthContext";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/context/useAuth";
 import { RouterProvider } from "@/context/RouterContext";
 import { useRouter } from "@/context/useRouter";
 import { Layout } from "@/components/Layout";
+import { Modal } from "@/components/ui/Modal";
 import { RoleDashboard } from "@/components/RoleDashboard";
 import { ReviewerDashboard } from "@/components/ReviewerDashboard";
 import { AuthPage } from "@/pages/AuthPage";
 import { ResetPasswordPage } from "@/pages/ResetPasswordPage";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { ConferencesPage } from "@/pages/ConferencesPage";
+import { TopicsPage } from "@/pages/TopicsPage";
+import { FundingPage } from "@/pages/FundingPage";
 import { ConferenceDetailPage } from "@/pages/ConferenceDetailPage";
 import { ConferenceFormPage } from "@/pages/ConferenceFormPage";
 import { PapersPage } from "@/pages/PapersPage";
@@ -22,26 +28,43 @@ import { CertificatesPage } from "@/pages/CertificatesPage";
 import { ProfilePage } from "@/pages/ProfilePage";
 import { UsersPage } from "@/pages/UsersPage";
 import { MessagesPage } from "@/pages/MessagesPage";
-import { AuditLogsPage } from "@/pages/AuditLogsPage";
 
 function AppContent() {
   const { session, profile, loading, authEvent } = useAuth();
-  const { route, navigate } = useRouter();
-  const [passwordRecovery, setPasswordRecovery] = useState(() => window.location.hash.includes("type=recovery"));
+  const { route, navigate, formRoute, closeForm } = useRouter();
+  const [formSubmitting, setFormSubmitting] = useState(false);
+  const [pageVersion, setPageVersion] = useState(0);
+  const dismissForm = () => { if (!formSubmitting) closeForm(); };
+  const handleFormSaved = () => {
+    closeForm();
+    setFormSubmitting(false);
+    setPageVersion((value) => value + 1);
+  };
+  const [passwordRecovery, setPasswordRecovery] = useState(() =>
+    window.location.hash.includes("type=recovery"),
+  );
 
   useEffect(() => {
     if (authEvent === "PASSWORD_RECOVERY") setPasswordRecovery(true);
   }, [authEvent]);
 
   useEffect(() => {
-    if (!loading && session && !passwordRecovery && profile?.role === "participant" && ['dashboard', 'reviews', 'review-detail'].includes(route.page)) {
+    if (
+      !loading &&
+      session &&
+      !passwordRecovery &&
+      profile?.role === "participant" &&
+      ["dashboard", "reviews", "review-detail"].includes(route.page)
+    ) {
       navigate("conferences");
     }
   }, [loading, session, passwordRecovery, profile?.role, route.page, navigate]);
 
   useEffect(() => {
     if (!session) return;
-    const returnTarget = sessionStorage.getItem("confmanager:return-after-auth");
+    const returnTarget = sessionStorage.getItem(
+      "confmanager:return-after-auth",
+    );
     if (!returnTarget) return;
     sessionStorage.removeItem("confmanager:return-after-auth");
     try {
@@ -50,7 +73,10 @@ function AppContent() {
         action?: "register" | "submit";
       };
       if (target.conferenceId) {
-        sessionStorage.setItem("confmanager:pending-intent", JSON.stringify(target));
+        sessionStorage.setItem(
+          "confmanager:pending-intent",
+          JSON.stringify(target),
+        );
         navigate("conference-detail", { id: target.conferenceId });
       }
     } catch {
@@ -71,28 +97,75 @@ function AppContent() {
   }
 
   if (passwordRecovery) {
-    return <ResetPasswordPage onComplete={() => { setPasswordRecovery(false); navigate("dashboard"); }} />;
+    return (
+      <ResetPasswordPage
+        onComplete={() => {
+          setPasswordRecovery(false);
+          navigate("dashboard");
+        }}
+      />
+    );
   }
 
   const pageMap: Record<string, React.ReactNode> = {
-    dashboard: profile?.role === "participant" ? <ConferencesPage /> : profile?.role === "admin" ? <DashboardPage /> : profile?.role === "reviewer" ? <ReviewerDashboard /> : <RoleDashboard />,
+    dashboard:
+      profile?.role === "participant" ? (
+        <ConferencesPage />
+      ) : profile?.role === "admin" ? (
+        <DashboardPage />
+      ) : profile?.role === "reviewer" ? (
+        <ReviewerDashboard />
+      ) : (
+        <RoleDashboard />
+      ),
     conferences: <ConferencesPage />,
+    topics: <TopicsPage />,
+    funding: <FundingPage />,
+    speaker: <SpeakerPage />,
+    resources: <ResourcesPage />,
+    "session-detail": <SessionDetailPage key={route.params.id} />,
     "conference-detail": <ConferenceDetailPage />,
     "conference-form": <ConferenceFormPage />,
     papers: <PapersPage />,
     "paper-detail": <PaperDetailPage />,
     "paper-form": <PaperFormPage />,
-    reviews: profile?.role === "participant" ? <ConferencesPage /> : <ReviewsPage />,
+    reviews:
+      profile?.role === "participant" ? <ConferencesPage /> : <ReviewsPage />,
     sessions: <SessionsPage />,
     participants: <ParticipantsPage />,
     certificates: <CertificatesPage />,
     messages: <MessagesPage />,
     users: <UsersPage />,
-    "audit-logs": <AuditLogsPage />,
     profile: <ProfilePage />,
   };
 
-  return <Layout>{pageMap[route.page] ?? pageMap.dashboard}</Layout>;
+  return <Layout>
+    <div key={pageVersion}>{pageMap[route.page] ?? pageMap.dashboard}</div>
+    <Modal
+      open={formRoute !== null}
+      onClose={dismissForm}
+      title={formRoute?.page === "conference-form"
+        ? (formRoute.params.id ? "Chỉnh sửa hội thảo" : "Tạo hội thảo mới")
+        : (formRoute?.params.id ? "Chỉnh sửa bài báo" : "Nộp bài báo mới")}
+      size="lg"
+    >
+      {formRoute?.page === "conference-form" && <ConferenceFormPage
+        embedded
+        editId={formRoute.params.id}
+        onCancel={dismissForm}
+        onSaved={handleFormSaved}
+        onSubmittingChange={setFormSubmitting}
+      />}
+      {formRoute?.page === "paper-form" && <PaperFormPage
+        embedded
+        editId={formRoute.params.id}
+        initialConferenceId={formRoute.params.conferenceId}
+        onCancel={dismissForm}
+        onSaved={handleFormSaved}
+        onSubmittingChange={setFormSubmitting}
+      />}
+    </Modal>
+  </Layout>;
 }
 
 function App() {
@@ -106,4 +179,3 @@ function App() {
 }
 
 export default App;
-

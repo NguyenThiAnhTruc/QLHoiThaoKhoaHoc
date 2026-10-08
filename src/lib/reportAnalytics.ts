@@ -1,4 +1,5 @@
 import type { Conference, Paper, Participant, Certificate, Profile, Review } from '@/types';
+import { getConferenceDisplayStatus } from './constants';
 
 export interface ReportingEvent {
   id: string; event_type: 'tracking_started' | 'registration_cancelled' | 'camera_ready';
@@ -9,7 +10,7 @@ export interface ReportData {
   certificates: Certificate[]; profiles: Pick<Profile, 'id' | 'role' | 'created_at'>[];
   reviews: Review[]; events: ReportingEvent[] | null;
 }
-export interface ReportFilter { from: string; to: string; conference: string; status: string }
+export interface ReportFilter { from: string; to: string; conference: string; status: string; allTime?: boolean }
 export function dateInput(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
@@ -24,16 +25,24 @@ export function presetRange(preset: string, now = new Date()) {
 }
 const countBy = (values: string[], keys: string[]) => Object.fromEntries(keys.map(key => [key, values.filter(value => value === key).length]));
 export function buildReport(data: ReportData, filter: ReportFilter, now = new Date()) {
-  const start = new Date(`${filter.from}T00:00:00`);
+  let start = new Date(`${filter.from}T00:00:00`);
   const end = new Date(`${filter.to}T00:00:00`); end.setDate(end.getDate() + 1);
   if (!Number.isFinite(+start) || !Number.isFinite(+end) || start >= end) throw new Error('Khoảng ngày không hợp lệ');
+  if (filter.allTime) {
+    const dates = [...data.papers.map(p => p.created_at), ...data.participants.map(p => p.registered_at), ...data.profiles.map(p => p.created_at)]
+      .map(value => new Date(value)).filter(date => Number.isFinite(+date));
+    start = new Date(Math.min(+now, ...dates.map(Number)));
+    start = new Date(start.getFullYear(), start.getMonth(), 1);
+    const latest = new Date(Math.max(+now, ...dates.map(Number)));
+    end.setTime(+new Date(latest.getFullYear(), latest.getMonth() + 1, 1));
+  }
   const inRange = (value: string) => {
     const date = new Date(value.length === 10 ? `${value}T00:00:00` : value);
-    return date >= start && date < end;
+    return filter.allTime ? Number.isFinite(+date) : date >= start && date < end;
   };
-  const scope = data.conferences.filter(c => (!filter.conference || c.id === filter.conference) && (!filter.status || c.status === filter.status));
+  const scope = data.conferences.filter(c => (!filter.conference || c.id === filter.conference) && (!filter.status || getConferenceDisplayStatus(c, now) === filter.status));
   const ids = new Set(scope.map(c => c.id));
-  const conferences = scope.filter(c => inRange(c.start_date));
+  const conferences = scope;
   const papers = data.papers.filter(p => ids.has(p.conference_id) && inRange(p.created_at));
   const registrations = data.participants.filter(p => ids.has(p.conference_id) && inRange(p.registered_at));
   const certificates = data.certificates.filter(c => ids.has(c.conference_id) && inRange(c.issued_at));
@@ -72,7 +81,7 @@ export function buildReport(data: ReportData, filter: ReportFilter, now = new Da
   const decisions = accepted + paperStatuses.rejected;
   return {
     totals: { conferences: conferences.length, papers: papers.length, users: data.profiles.length, registrations: registrations.length, checkins: checked.length, certificates: certificates.length },
-    conferenceStatuses: countBy(conferences.map(c => c.status), ['draft', 'open', 'closed', 'ongoing', 'completed', 'cancelled']),
+    conferenceStatuses: countBy(conferences.map(c => getConferenceDisplayStatus(c, now)), ['draft', 'open', 'closed', 'ongoing', 'completed', 'cancelled']),
     averageRegistrations: scope.length ? registrations.length / scope.length : 0,
     paperStatuses, acceptRate: decisions ? accepted / decisions * 100 : null, rejectRate: decisions ? paperStatuses.rejected / decisions * 100 : null,
     assigned: papers.filter(p => assignedIds.has(p.id)).length, unassigned: papers.filter(p => !assignedIds.has(p.id)).length,
@@ -82,7 +91,7 @@ export function buildReport(data: ReportData, filter: ReportFilter, now = new Da
     cancelled: data.events === null ? null : data.events.filter(e => e.event_type === 'registration_cancelled' && e.conference_id && ids.has(e.conference_id) && inRange(e.occurred_at)).length,
     trackingSince: data.events?.find(e => e.event_type === 'tracking_started')?.occurred_at ?? null,
     newUsers: users.length,
-    roles: countBy(data.profiles.map(u => u.role), ['admin', 'organizer', 'author', 'participant']),
+    roles: countBy(data.profiles.map(u => u.role), ['admin', 'organizer', 'author', 'reviewer', 'participant']),
     attendanceCertificates: certificates.filter(c => c.certificate_type === 'attendance').length,
     presentationCertificates: certificates.filter(c => c.certificate_type === 'presentation').length,
     missingCertificates, months, top,
