@@ -45,13 +45,6 @@ interface ReviewRow {
   paper?: { conference?: { review_deadline: string | null } | null } | null;
 }
 
-interface AuditItem {
-  id: string;
-  action: string;
-  created_at: string;
-  actor?: { full_name: string } | null;
-}
-
 interface DeadlineWarning {
   category: "conference" | "paper";
   id: string;
@@ -62,15 +55,6 @@ interface DeadlineWarning {
 }
 
 type Navigate = (page: PageKey, params?: Record<string, string>) => void;
-
-const actionLabels: Record<string, string> = {
-  "conference.created": "Tạo hội thảo",
-  "paper.submitted": "Nộp bài báo",
-  "review.assigned": "Phân công phản biện",
-  "review.completed": "Hoàn thành phản biện",
-  "certificate.issued": "Cấp chứng nhận",
-  "profile.role_changed": "Thay đổi vai trò",
-};
 
 export function DashboardPage() {
   const { profile } = useAuth();
@@ -98,8 +82,8 @@ export function DashboardPage() {
     setReloadKey((key) => key + 1);
   }
   const [activeTab, setActiveTab] = useState<
-    "overview" | "management" | "papers" | "reports"
-  >("overview");
+    "management" | "papers" | "reports"
+  >("management");
 
   const [conferences, setConferences] = useState<Conference[]>([]);
   const [papers, setPapers] = useState<Paper[]>([]);
@@ -112,7 +96,6 @@ export function DashboardPage() {
     Set<string>
   >(new Set());
 
-  const [auditLogs, setAuditLogs] = useState<AuditItem[]>([]);
   const isAdmin = profile?.role === "admin";
 
   useEffect(() => {
@@ -166,7 +149,7 @@ export function DashboardPage() {
         setParticipants(nextParticipants);
 
         if (isAdmin) {
-          const [reviewResult, sessionResult, certificateResult, auditResult] =
+          const [reviewResult, sessionResult, certificateResult] =
             await Promise.all([
               fetchAll((from, to) =>
                 supabase
@@ -194,15 +177,10 @@ export function DashboardPage() {
                   .order("id")
                   .range(from, to),
               ),
-              supabase
-                .from("audit_logs")
-                .select("id, action, created_at, actor:profiles(full_name)")
-                .order("created_at", { ascending: false })
-                .limit(8),
             ]);
           if (cancelled) return;
           if (
-            [reviewResult, sessionResult, certificateResult, auditResult].some(
+            [reviewResult, sessionResult, certificateResult].some(
               (result) => result.error,
             )
           ) {
@@ -225,7 +203,6 @@ export function DashboardPage() {
                 ),
             ),
           );
-          setAuditLogs((auditResult.data ?? []) as unknown as AuditItem[]);
         }
       } catch {
         if (!cancelled) setLoadError(true);
@@ -461,11 +438,10 @@ export function DashboardPage() {
         <div
           className="flex overflow-x-auto border-b border-slate-200"
           role="group"
-          aria-label="Nội dung tổng quan"
+          aria-label="Nội dung quản trị"
         >
           {(
             [
-              { key: "overview", label: "Tổng quan", icon: BarChart3 },
               {
                 key: "management",
                 label: "Quản lý hội thảo",
@@ -488,7 +464,6 @@ export function DashboardPage() {
           ))}
         </div>
         <div className="space-y-6 p-4 sm:p-5">
-          {activeTab === "overview" && <AuditList auditLogs={auditLogs} />}
           {activeTab === "reports" && <AdminReports />}
           {(activeTab === "management" || activeTab === "papers") && (
             <>
@@ -788,44 +763,6 @@ function PaperList({
   );
 }
 
-function AuditList({ auditLogs }: { auditLogs: AuditItem[] }) {
-  return (
-    <section aria-labelledby="recent-activity-heading">
-      <h2
-        id="recent-activity-heading"
-        className="text-sm font-semibold text-slate-800"
-      >
-        Hoạt động gần đây
-      </h2>
-      <div className="mt-4 space-y-3">
-        {auditLogs.length === 0 ? (
-          <Empty text="Chưa có hoạt động quản trị nào" />
-        ) : (
-          auditLogs.map((item) => (
-            <div
-              key={item.id}
-              className="flex items-center gap-3 rounded-lg border border-slate-100 px-4 py-3"
-            >
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100">
-                <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-slate-800">
-                  {item.actor?.full_name || "Hệ thống"}
-                </p>
-                <p className="mt-1 text-xs leading-relaxed text-slate-500">
-                  {actionLabels[item.action] || item.action} ·{" "}
-                  {formatDateTime(item.created_at)}
-                </p>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-    </section>
-  );
-}
-
 function Empty({ text }: { text: string }) {
   return <p className="px-5 py-8 text-center text-sm text-slate-400">{text}</p>;
 }
@@ -875,7 +812,4 @@ function startOfToday() {
 }
 function formatDate(value: string) {
   return new Date(value).toLocaleDateString("vi-VN");
-}
-function formatDateTime(value: string) {
-  return new Date(value).toLocaleString("vi-VN");
 }

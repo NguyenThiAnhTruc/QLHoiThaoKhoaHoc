@@ -1,4 +1,4 @@
--- Run on a test database after schema and 20260924_admin_management.sql.
+-- Run on a test database after schema and conference_updates.sql.
 -- All fixtures and changes are rolled back.
 BEGIN;
 CREATE FUNCTION pg_temp.assert_true(value boolean, label text) RETURNS void

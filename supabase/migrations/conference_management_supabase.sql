@@ -614,7 +614,7 @@ BEGIN
     NEW.id,
     COALESCE(NEW.raw_user_meta_data->>'full_name', ''),
     CASE
-      WHEN NEW.raw_user_meta_data->>'role' IN ('participant', 'author')
+      WHEN NEW.raw_user_meta_data->>'role' IN ('participant', 'author', 'reviewer')
         THEN NEW.raw_user_meta_data->>'role'
       ELSE 'participant'
     END
@@ -2337,7 +2337,7 @@ BEGIN
       crypt(demo_password, gen_salt('bf')),
       now(),
       '{"provider":"email","providers":["email"]}'::jsonb,
-      '{"full_name":"Admin","role":"admin"}'::jsonb,
+      '{"full_name":"Nguyễn Minh Quân","role":"admin"}'::jsonb,
       now(),
       now(),
       '',
@@ -2354,7 +2354,7 @@ BEGIN
       crypt(demo_password, gen_salt('bf')),
       now(),
       '{"provider":"email","providers":["email"]}'::jsonb,
-      '{"full_name":"Ban tổ chức","role":"organizer"}'::jsonb,
+      '{"full_name":"Trần Thu Hà","role":"organizer"}'::jsonb,
       now(),
       now(),
       '',
@@ -2371,7 +2371,7 @@ BEGIN
       crypt(demo_password, gen_salt('bf')),
       now(),
       '{"provider":"email","providers":["email"]}'::jsonb,
-      '{"full_name":"Tác giả","role":"author"}'::jsonb,
+      '{"full_name":"Lê Hoàng Nam","role":"author"}'::jsonb,
       now(),
       now(),
       '',
@@ -2388,7 +2388,7 @@ BEGIN
       crypt(demo_password, gen_salt('bf')),
       now(),
       '{"provider":"email","providers":["email"]}'::jsonb,
-      '{"full_name":"Chuyên gia phản biện","role":"author"}'::jsonb,
+      '{"full_name":"Phạm Ngọc Lan","role":"author"}'::jsonb,
       now(),
       now(),
       '',
@@ -2405,7 +2405,7 @@ BEGIN
       crypt(demo_password, gen_salt('bf')),
       now(),
       '{"provider":"email","providers":["email"]}'::jsonb,
-      '{"full_name":"Người tham dự","role":"participant"}'::jsonb,
+      '{"full_name":"Võ Gia Hân","role":"participant"}'::jsonb,
       now(),
       now(),
       '',
@@ -2500,7 +2500,7 @@ BEGIN
   VALUES
     (
       '00000000-0000-0000-0000-000000000001',
-      'Admin',
+      'Nguyễn Minh Quân',
       'admin',
       '0900000001',
       'ConfManager',
@@ -2508,7 +2508,7 @@ BEGIN
     ),
     (
       '00000000-0000-0000-0000-000000000002',
-      'Ban tổ chức',
+      'Trần Thu Hà',
       'organizer',
       '0900000002',
       'Khoa Công nghệ thông tin',
@@ -2516,7 +2516,7 @@ BEGIN
     ),
     (
       '00000000-0000-0000-0000-000000000003',
-      'Tác giả',
+      'Lê Hoàng Nam',
       'author',
       '0900000003',
       'Trường Đại học Demo',
@@ -2524,7 +2524,7 @@ BEGIN
     ),
     (
       '00000000-0000-0000-0000-000000000004',
-      'Chuyên gia phản biện',
+      'Phạm Ngọc Lan',
       'author',
       '0900000004',
       'Hội đồng phản biện',
@@ -2532,7 +2532,7 @@ BEGIN
     ),
     (
       '00000000-0000-0000-0000-000000000005',
-      'Người tham dự',
+      'Võ Gia Hân',
       'participant',
       '0900000005',
       'Khách tham dự',
@@ -3950,5 +3950,84 @@ END; $$;
 DROP TRIGGER IF EXISTS notify_review_response ON public.reviews;
 CREATE TRIGGER notify_review_response AFTER UPDATE OF status ON public.reviews FOR EACH ROW EXECUTE FUNCTION public.notify_review_response();
 REVOKE ALL ON FUNCTION public.guard_review_response(), public.notify_review_response() FROM PUBLIC;
+NOTIFY pgrst, 'reload schema';
+COMMIT;
+
+-- Lĩnh vực chính; để NULL cho các hội thảo cũ chưa được phân loại.
+
+-- BEGIN SECTION 20260927_conference_paper_catalog
+-- Metadata visible to signed-in visitors of a visible conference.
+-- File paths, author identities and review results retain their existing access rules.
+BEGIN;
+CREATE OR REPLACE FUNCTION public.conference_paper_catalog(target_conference_id uuid)
+RETURNS TABLE (
+  id uuid, title text, abstract text, status text,
+  created_at timestamptz, can_open boolean
+)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT p.id, p.title, p.abstract, p.status, p.created_at,
+    (p.status = 'accepted' OR public.can_read_paper(p.id))
+  FROM public.papers p
+  JOIN public.conferences c ON c.id = p.conference_id
+  WHERE auth.uid() IS NOT NULL
+    AND c.id = target_conference_id
+    AND (c.status <> 'draft' OR public.is_conference_organizer(c.id))
+  ORDER BY p.created_at DESC, p.id;
+$$;
+REVOKE ALL ON FUNCTION public.conference_paper_catalog(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.conference_paper_catalog(uuid) TO authenticated;
+NOTIFY pgrst, 'reload schema';
+COMMIT;
+-- END SECTION 20260927_conference_paper_catalog
+
+BEGIN;
+ALTER TABLE public.conferences ADD COLUMN IF NOT EXISTS field text;
+ALTER TABLE public.conferences DROP CONSTRAINT IF EXISTS conferences_field_check;
+ALTER TABLE public.conferences ADD CONSTRAINT conferences_field_check CHECK (
+  field IS NULL OR field IN (
+    'Công nghệ thông tin', 'Kỹ thuật', 'Khoa học tự nhiên', 'Y tế',
+    'Nông nghiệp', 'Môi trường', 'Kinh tế', 'Kinh doanh',
+    'Giáo dục', 'Luật', 'Khoa học xã hội', 'Du lịch'
+  )
+);
+COMMENT ON COLUMN public.conferences.field IS 'Lĩnh vực chính của hội thảo';
+NOTIFY pgrst, 'reload schema';
+COMMIT;
+
+-- Phân loại 10 hội thảo mẫu theo danh sách lĩnh vực/chủ đề của form.
+-- Chạy sau các file seed. Có thể chạy lại, không thay đổi lịch hay trạng thái.
+BEGIN;
+
+ALTER TABLE public.conferences ADD COLUMN IF NOT EXISTS field text;
+
+UPDATE public.conferences AS conference
+SET field = mapping.field,
+    topics = mapping.topics
+FROM (VALUES
+  ('10000000-0000-0000-0000-000000000001'::uuid, 'Công nghệ thông tin',
+    ARRAY['Trí tuệ nhân tạo', 'Khoa học dữ liệu']),
+  ('10000000-0000-0000-0000-000000000002'::uuid, 'Công nghệ thông tin',
+    ARRAY['Kỹ thuật phần mềm', 'Trí tuệ nhân tạo']),
+  ('a1000000-0000-0000-0000-000000000001'::uuid, 'Công nghệ thông tin',
+    ARRAY['Trí tuệ nhân tạo']),
+  ('a1000000-0000-0000-0000-000000000002'::uuid, 'Công nghệ thông tin',
+    ARRAY['Trí tuệ nhân tạo']),
+  ('c0000000-0000-0000-0000-000000000001'::uuid, 'Giáo dục',
+    ARRAY['Công nghệ giáo dục', 'Phương pháp giảng dạy']),
+  ('c0000000-0000-0000-0000-000000000002'::uuid, 'Công nghệ thông tin',
+    ARRAY['Trí tuệ nhân tạo', 'Khoa học dữ liệu']),
+  ('c0000000-0000-0000-0000-000000000003'::uuid, 'Công nghệ thông tin',
+    ARRAY['An toàn thông tin', 'Điện toán đám mây']),
+  ('c0000000-0000-0000-0000-000000000004'::uuid, 'Công nghệ thông tin',
+    ARRAY['IoT']),
+  ('c0000000-0000-0000-0000-000000000005'::uuid, 'Công nghệ thông tin',
+    ARRAY['Kỹ thuật phần mềm']),
+  ('c0000000-0000-0000-0000-000000000006'::uuid, 'Kỹ thuật',
+    ARRAY['Robot', 'Tự động hóa'])
+) AS mapping(id, field, topics)
+WHERE conference.id = mapping.id
+  AND (conference.field IS DISTINCT FROM mapping.field
+    OR conference.topics IS DISTINCT FROM mapping.topics);
+
 NOTIFY pgrst, 'reload schema';
 COMMIT;

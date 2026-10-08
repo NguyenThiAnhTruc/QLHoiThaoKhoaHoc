@@ -9,7 +9,7 @@ import {
   Camera,
   QrCode,
 } from "lucide-react";
-import { BrowserQRCodeReader, type IScannerControls } from "@zxing/browser";
+import { useQrScanner } from "@/context/useQrScanner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/useAuth";
 import { useConferenceAccess } from "@/context/useConferenceAccess";
@@ -42,39 +42,14 @@ export function ParticipantsPage() {
     useState<Participant | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const scannerControls = useRef<IScannerControls | null>(null);
   const checkInHandler = useRef<(value?: string) => Promise<void>>();
 
   const canEdit = managedConferences.length > 0;
 
-  useEffect(() => {
-    if (!scannerOpen || !videoRef.current) return;
-    const reader = new BrowserQRCodeReader();
-    let cancelled = false;
-    void reader
-      .decodeFromConstraints(
-        { video: { facingMode: { ideal: "environment" } } },
-        videoRef.current,
-        (result, error, controls) => {
-          if (cancelled) return;
-          scannerControls.current = controls;
-          if (!result) return;
-          const scannedCode = result.getText();
-          setAttendanceCode(scannedCode);
-          setScannerOpen(false);
-          void checkInHandler.current?.(scannedCode);
-        },
-      )
-      .catch(() => {
-        if (!cancelled)
-          showToast("error", "Không thể truy cập camera để quét QR");
-      });
-    return () => {
-      cancelled = true;
-      scannerControls.current?.stop();
-      scannerControls.current = null;
-    };
-  }, [scannerOpen]);
+  useQrScanner(scannerOpen, videoRef, (code) => {
+    setAttendanceCode(code); setScannerOpen(false);
+    void checkInHandler.current?.(code);
+  });
 
   useEffect(() => {
     load();
