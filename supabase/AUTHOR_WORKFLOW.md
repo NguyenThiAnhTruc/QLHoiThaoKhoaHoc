@@ -2,7 +2,7 @@
 
 ## Cập nhật database đang sử dụng
 
-Chạy toàn bộ `migrations/20260925_author_workflow.sql` trong Supabase SQL Editor,
+Chạy toàn bộ `migrations/conference_updates.sql` trong Supabase SQL Editor,
 sau các migration hiện có. Sau khi thành công, triển khai frontend cùng phiên bản này.
 Không chạy lại file SQL tổng trên database đang có dữ liệu để thay thế migration.
 

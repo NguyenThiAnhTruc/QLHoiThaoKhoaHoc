@@ -1,12 +1,14 @@
+import { ResourceCenter } from "@/components/ResourceCenter";
+import { AgendaView } from "@/components/AgendaView";
+import { DateInput } from "@/components/ui/DateInput";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BrowserMultiFormatReader } from "@zxing/browser";
+import { useQrScanner } from "@/context/useQrScanner";
 import { TransferConferenceOwner } from "@/components/TransferConferenceOwner";
 import {
   ArrowLeft,
   CalendarDays,
   MapPin,
   Users,
-  Clock,
   UserPlus,
   QrCode,
   FileText,
@@ -33,6 +35,7 @@ import {
   PAPER_STATUS_COLORS,
   ROLE_LABELS,
   getConferenceDisplayStatus,
+  isConferenceRegistrationOpen,
 } from "@/lib/constants";
 import type {
   Conference,
@@ -50,7 +53,12 @@ export function ConferenceDetailPage() {
   const profileId = profile?.id;
 
   const [conference, setConference] = useState<Conference | null>(null);
-  const [papers, setPapers] = useState<Paper[]>([]);
+  const [papers, setPapers] = useState<
+    (Pick<Paper, "id" | "title" | "abstract" | "status"> & {
+      can_open: boolean;
+    })[]
+  >([]);
+  const [paperLoadError, setPaperLoadError] = useState("");
   const [sessions, setSessions] = useState<Session[]>([]);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [staff, setStaff] = useState<ConferenceStaff[]>([]);
@@ -61,7 +69,9 @@ export function ConferenceDetailPage() {
     null,
   );
   const [attendanceSession, setAttendanceSession] = useState<{
-    code: string; starts_at: string; ends_at: string;
+    code: string;
+    starts_at: string;
+    ends_at: string;
   } | null>(null);
   const [attendanceStartsAt, setAttendanceStartsAt] = useState("");
   const [attendanceEndsAt, setAttendanceEndsAt] = useState("");
@@ -77,7 +87,9 @@ export function ConferenceDetailPage() {
   const [checkingIn, setCheckingIn] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
   const scannerVideoRef = useRef<HTMLVideoElement>(null);
-  const [attendanceCertificate, setAttendanceCertificate] = useState<{ id: string } | null>(null);
+  const [attendanceCertificate, setAttendanceCertificate] = useState<{
+    id: string;
+  } | null>(null);
   const [attendanceFilter, setAttendanceFilter] = useState<
     "all" | "attended" | "pending"
   >("all");
@@ -92,13 +104,12 @@ export function ConferenceDetailPage() {
   const canManageStaff =
     profile?.role === "admin" || profile?.id === conference?.organizer_id;
   const canRegisterRole =
-    profile?.role === "participant" || profile?.role === "author";
-  const registrationOpen =
-    conference &&
-    getConferenceDisplayStatus(conference) === "open" &&
-    new Date() < new Date(conference.start_date) &&
-    (!conference.registration_deadline ||
-      new Date(conference.registration_deadline) >= new Date());
+    profile?.role === "participant" ||
+    profile?.role === "author" ||
+    profile?.role === "reviewer";
+  const registrationOpen = conference
+    ? isConferenceRegistrationOpen(conference)
+    : false;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -109,12 +120,20 @@ export function ConferenceDetailPage() {
       .maybeSingle();
     if (conf) setConference(conf as unknown as Conference);
 
-    const { data: p } = await supabase
-      .rpc("read_papers")
-      .eq("conference_id", conferenceId)
-      .select("*, submitted_by:profile_directory(*)")
+    const { data: p, error: papersError } = await supabase
+      .rpc("conference_paper_catalog", { target_conference_id: conferenceId })
       .order("created_at", { ascending: false });
-    if (p) setPapers(p as unknown as Paper[]);
+    if (papersError) {
+      setPaperLoadError("Không thể tải danh sách bài báo. Vui lòng thử lại.");
+      showToast(
+        "error",
+        "Không thể tải bài báo của hội thảo: " + papersError.message,
+      );
+      setPapers([]);
+    } else {
+      setPaperLoadError("");
+      setPapers(p ?? []);
+    }
 
     const { data: s } = await supabase
       .from("sessions")
@@ -143,7 +162,7 @@ export function ConferenceDetailPage() {
 
     const { data: staffRows } = await supabase
       .from("conference_staff")
-        .select("*, user:profile_directory!participants_user_id_fkey(*)")
+      .select("*, user:profile_directory!conference_staff_user_id_fkey(*)")
       .eq("conference_id", conferenceId)
       .order("created_at", { ascending: true });
     if (staffRows) setStaff(staffRows as unknown as ConferenceStaff[]);
@@ -158,9 +177,13 @@ export function ConferenceDetailPage() {
       setIsRegistered(!!myReg);
       setMyRegistration(myReg as unknown as Participant | null);
       if (profileId) {
-        const { data: certificate } = await supabase.from("certificates").select("id")
-          .eq("conference_id", conferenceId).eq("user_id", profileId)
-          .eq("certificate_type", "attendance").maybeSingle();
+        const { data: certificate } = await supabase
+          .from("certificates")
+          .select("id")
+          .eq("conference_id", conferenceId)
+          .eq("user_id", profileId)
+          .eq("certificate_type", "attendance")
+          .maybeSingle();
         setAttendanceCertificate(certificate as { id: string } | null);
       }
     } else {
@@ -172,7 +195,8 @@ export function ConferenceDetailPage() {
   }, [conferenceId, profileId]);
 
   async function saveAttendanceSession() {
-    if (!attendanceStartsAt || !attendanceEndsAt || savingAttendanceSession) return;
+    if (!attendanceStartsAt || !attendanceEndsAt || savingAttendanceSession)
+      return;
     setSavingAttendanceSession(true);
     const { data, error } = await supabase.rpc("create_attendance_session", {
       target_conference_id: conferenceId,
@@ -180,8 +204,13 @@ export function ConferenceDetailPage() {
       session_ends_at: new Date(attendanceEndsAt).toISOString(),
     });
     setSavingAttendanceSession(false);
-    if (error) { showToast("error", error.message); return; }
-    setAttendanceSession(data as { code: string; starts_at: string; ends_at: string });
+    if (error) {
+      showToast("error", error.message);
+      return;
+    }
+    setAttendanceSession(
+      data as { code: string; starts_at: string; ends_at: string },
+    );
     showToast("success", "Đã lưu phiên điểm danh");
   }
 
@@ -243,8 +272,8 @@ export function ConferenceDetailPage() {
   ]);
 
   async function handleRegister() {
-    if (!profile) return;
-    const displayStatus = conference ? getConferenceDisplayStatus(conference) : null;
+    if (!profile || !conference) return;
+    const displayStatus = getConferenceDisplayStatus(conference);
     if (displayStatus !== "open" || !registrationOpen) {
       showToast("error", "Hội thảo hiện không mở đăng ký");
       return;
@@ -254,6 +283,13 @@ export function ConferenceDetailPage() {
       participants.length >= conference.max_participants
     ) {
       showToast("error", "Hội thảo đã đủ số lượng người tham dự");
+      return;
+    }
+    const { data: allowed, error: eligibilityError } = await supabase.rpc("can_register_for_conference", { conf_id: conferenceId });
+    if (eligibilityError || !allowed) {
+      showToast("error", conference.require_accepted_paper && profile.role === "author"
+        ? "Cần có bài báo được chấp nhận và hội thảo còn mở đăng ký."
+        : "Hội thảo không còn nhận đăng ký hoặc đã đủ số lượng.");
       return;
     }
     const { error } = await supabase
@@ -290,29 +326,27 @@ export function ConferenceDetailPage() {
     const code = (codeOverride ?? selfCheckinCode).trim();
     if (!code || checkingIn) return;
     setCheckingIn(true);
-    const { error } = await supabase.rpc("check_in_self", { attendance_code_input: code });
+    const { error } = await supabase.rpc("check_in_self", {
+      attendance_code_input: code,
+    });
     setCheckingIn(false);
-    if (error) { showToast("error", error.message); return; }
+    if (error) {
+      showToast("error", error.message);
+      return;
+    }
     showToast("success", "Điểm danh thành công");
-    setQrModalOpen(false); setSelfCheckinCode("");
+    setQrModalOpen(false);
+    setSelfCheckinCode("");
     load();
   }
 
   const selfCheckinHandler = useRef(handleSelfCheckin);
   selfCheckinHandler.current = handleSelfCheckin;
 
-  useEffect(() => {
-    if (!scannerOpen || !scannerVideoRef.current) return;
-    const reader = new BrowserMultiFormatReader();
-    let controls: { stop: () => void } | undefined;
-    void reader.decodeFromVideoDevice(undefined, scannerVideoRef.current, (result) => {
-      if (!result) return;
-      setSelfCheckinCode(result.getText());
-      setScannerOpen(false);
-      void selfCheckinHandler.current(result.getText());
-    }).then((value) => { controls = value; }).catch(() => showToast("error", "Không thể mở camera để quét QR"));
-    return () => controls?.stop();
-  }, [scannerOpen]);
+  useQrScanner(scannerOpen, scannerVideoRef, (code) => {
+    setSelfCheckinCode(code); setScannerOpen(false);
+    void selfCheckinHandler.current(code);
+  });
 
   async function handleToggleAttendance(part: Participant) {
     const { error } = await supabase
@@ -413,7 +447,8 @@ export function ConferenceDetailPage() {
 
   const eventStarted = new Date() >= new Date(conference.start_date);
   const eventFinished = new Date() > new Date(conference.end_date);
-  const checkinOpen = !!attendanceSession &&
+  const checkinOpen =
+    !!attendanceSession &&
     new Date() >= new Date(attendanceSession.starts_at) &&
     new Date() <= new Date(attendanceSession.ends_at);
   const canCancelRegistration = !eventStarted && Boolean(registrationOpen);
@@ -426,7 +461,9 @@ export function ConferenceDetailPage() {
     },
     {
       key: "papers",
-      label: `Bài báo (${papers.length})`,
+      label: paperLoadError
+        ? "Bài báo (lỗi tải)"
+        : `Bài báo (${papers.length})`,
       icon: <FileText className="h-4 w-4" />,
     },
     {
@@ -434,6 +471,7 @@ export function ConferenceDetailPage() {
       label: `Lịch trình (${sessions.length})`,
       icon: <ScheduleIcon className="h-4 w-4" />,
     },
+    {key:"resources",label:"Tài liệu",icon:<FileText className="h-4 w-4"/>},
     {
       key: "participants",
       label: `Người tham dự (${participants.length})`,
@@ -547,7 +585,8 @@ export function ConferenceDetailPage() {
           <div className="mt-5 flex flex-wrap gap-5 text-sm text-slate-300">
             <span className="flex items-center gap-2">
               <CalendarDays className="h-4 w-4 text-teal-400" />
-              {formatConferenceDateTime(conference.start_date)} - {formatConferenceDateTime(conference.end_date)}
+              {formatConferenceDateTime(conference.start_date)} -{" "}
+              {formatConferenceDateTime(conference.end_date)}
             </span>
             {conference.location && (
               <span className="flex items-center gap-2">
@@ -576,15 +615,44 @@ export function ConferenceDetailPage() {
           )}
           {profile && canRegisterRole && isRegistered && (
             <div className="mt-5 flex gap-3">
-              <span className="rounded-lg bg-emerald-500/20 px-4 py-2 text-sm font-semibold text-emerald-100">Đã đăng ký</span>
-              {canCancelRegistration && <Button variant="outline" className="bg-white/10 border-white/20 text-white hover:bg-white/20" onClick={handleUnregister}>Hủy đăng ký</Button>}
-              {checkinOpen && !myRegistration?.attended && <Button onClick={() => setQrModalOpen(true)}><QrCode className="h-4 w-4" /> Điểm danh</Button>}
-              {myRegistration?.attended && <span className="rounded-lg bg-teal-500/20 px-4 py-2 text-sm font-semibold text-teal-100">Đã điểm danh</span>}
-              {eventFinished && attendanceCertificate && <Button onClick={() => navigate("certificates")}><FileText className="h-4 w-4" /> Xem chứng nhận</Button>}
+              <span className="rounded-lg bg-emerald-500/20 px-4 py-2 text-sm font-semibold text-emerald-100">
+                Đã đăng ký
+              </span>
+              {canCancelRegistration && (
+                <Button
+                  variant="outline"
+                  className="bg-white/10 border-white/20 text-white hover:bg-white/20"
+                  onClick={handleUnregister}
+                >
+                  Hủy đăng ký
+                </Button>
+              )}
+              {checkinOpen && !myRegistration?.attended && (
+                <Button onClick={() => setQrModalOpen(true)}>
+                  <QrCode className="h-4 w-4" /> Điểm danh
+                </Button>
+              )}
+              {myRegistration?.attended && (
+                <span className="rounded-lg bg-teal-500/20 px-4 py-2 text-sm font-semibold text-teal-100">
+                  Đã điểm danh
+                </span>
+              )}
+              {eventFinished && attendanceCertificate && (
+                <Button onClick={() => navigate("certificates")}>
+                  <FileText className="h-4 w-4" /> Xem chứng nhận
+                </Button>
+              )}
             </div>
           )}
-          {profile && canRegisterRole && !isRegistered && registrationOpen && <Button onClick={handleRegister}><UserPlus className="h-4 w-4" /> Đăng ký tham gia</Button>}
-          {profile && canRegisterRole && !isRegistered && !registrationOpen && <p className="mt-5 text-sm text-amber-200">Đã đóng đăng ký</p>}
+          {conference.require_accepted_paper && profile?.role === "author" && !isRegistered && <p className="mt-4 text-sm text-amber-200">Tác giả cần có bài được chấp nhận trước khi đăng ký tham dự.</p>}
+          {profile && canRegisterRole && !isRegistered && registrationOpen && (
+            <Button onClick={handleRegister}>
+              <UserPlus className="h-4 w-4" /> Đăng ký tham gia
+            </Button>
+          )}
+          {profile && canRegisterRole && !isRegistered && !registrationOpen && (
+            <p className="mt-5 text-sm text-amber-200">Đã đóng đăng ký</p>
+          )}
         </div>
       </div>
 
@@ -614,23 +682,93 @@ export function ConferenceDetailPage() {
             {conference.description || "Chưa có mô tả"}
           </p>
           <div className="grid gap-3 border-t border-slate-100 pt-5 sm:grid-cols-2 lg:grid-cols-3">
-            <DetailItem label="Hình thức" value={formatEventFormat(conference.event_format)} />
-            <DetailItem label="Chủ đề" value={conference.topics?.join(", ") || "Chưa cập nhật"} />
-            <DetailItem label="Hạn đăng ký" value={formatOptionalDateTime(conference.registration_deadline)} />
-            <DetailItem label="Hạn nộp bài" value={formatOptionalDateTime(conference.submission_deadline)} />
-            <DetailItem label="Hạn phản biện" value={formatOptionalDateTime(conference.review_deadline)} />
-            <DetailItem label="Hạn camera-ready" value={formatOptionalDateTime(conference.camera_ready_deadline)} />
+            <DetailItem
+              label="Hình thức"
+              value={formatEventFormat(conference.event_format)}
+            />
+            <DetailItem
+              label="Lĩnh vực"
+              value={conference.field || "Chưa cập nhật"}
+            />
+            <DetailItem
+              label="Chủ đề"
+              value={conference.topics?.join(", ") || "Chưa cập nhật"}
+            />
+            <DetailItem
+              label="Hạn đăng ký"
+              value={formatOptionalDateTime(conference.registration_deadline)}
+            />
+            <DetailItem
+              label="Hạn nộp bài"
+              value={formatOptionalDateTime(conference.submission_deadline)}
+            />
+            <DetailItem
+              label="Hạn phản biện"
+              value={formatOptionalDateTime(conference.review_deadline)}
+            />
+            <DetailItem
+              label="Hạn camera-ready"
+              value={formatOptionalDateTime(conference.camera_ready_deadline)}
+            />
           </div>
           {canManageStaff && (
             <div className="border-t border-slate-100 pt-5">
-              <h4 className="font-semibold text-slate-900">Phiên điểm danh QR</h4>
-              <p className="mt-1 text-sm text-slate-500">Mỗi hội thảo có một mã dùng chung trong thời gian phiên.</p>
+              <h4 className="font-semibold text-slate-900">
+                Phiên điểm danh QR
+              </h4>
+              <p className="mt-1 text-sm text-slate-500">
+                Mỗi hội thảo có một mã dùng chung trong thời gian phiên.
+              </p>
               <div className="mt-3 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
-                <label className="text-sm text-slate-600">Bắt đầu<input type="datetime-local" value={attendanceStartsAt} onChange={(e) => setAttendanceStartsAt(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" /></label>
-                <label className="text-sm text-slate-600">Kết thúc<input type="datetime-local" value={attendanceEndsAt} onChange={(e) => setAttendanceEndsAt(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" /></label>
-                <Button className="self-end" disabled={savingAttendanceSession || !attendanceStartsAt || !attendanceEndsAt} onClick={() => void saveAttendanceSession()}>{savingAttendanceSession ? "Đang lưu..." : "Lưu phiên"}</Button>
+                <label className="text-sm text-slate-600">
+                  Bắt đầu
+                  <DateInput
+                    type="datetime-local"
+                    value={attendanceStartsAt}
+                    onValueChange={setAttendanceStartsAt}
+                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                  />
+                </label>
+                <label className="text-sm text-slate-600">
+                  Kết thúc
+                  <DateInput
+                    type="datetime-local"
+                    value={attendanceEndsAt}
+                    onValueChange={setAttendanceEndsAt}
+                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                  />
+                </label>
+                <Button
+                  className="self-end"
+                  disabled={
+                    savingAttendanceSession ||
+                    !attendanceStartsAt ||
+                    !attendanceEndsAt
+                  }
+                  onClick={() => void saveAttendanceSession()}
+                >
+                  {savingAttendanceSession ? "Đang lưu..." : "Lưu phiên"}
+                </Button>
               </div>
-              {attendanceSession && <div className="mt-4 flex flex-wrap items-center gap-4 rounded-lg bg-teal-50 p-3"><span className="text-sm text-teal-800">Mã điểm danh: <strong className="font-mono">{attendanceSession.code}</strong></span><img className="h-24 w-24 rounded bg-white p-1" src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(attendanceSession.code)}`} alt="QR điểm danh" /><span className="text-xs text-slate-500">{formatConferenceDateTime(attendanceSession.starts_at)} – {formatConferenceDateTime(attendanceSession.ends_at)}</span></div>}
+              {attendanceSession && (
+                <div className="mt-4 flex flex-wrap items-center gap-4 rounded-lg bg-teal-50 p-3">
+                  <span className="text-sm text-teal-800">
+                    Mã điểm danh:{" "}
+                    <strong className="font-mono">
+                      {attendanceSession.code}
+                    </strong>
+                  </span>
+                  <img
+                    className="h-24 w-24 rounded bg-white p-1"
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(attendanceSession.code)}`}
+                    alt="QR điểm danh"
+                  />
+                  <span className="text-xs text-slate-500">
+                    {formatConferenceDateTime(attendanceSession.starts_at)} –{" "}
+                    {formatConferenceDateTime(attendanceSession.ends_at)}
+                  </span>
+                </div>
+              )}
             </div>
           )}
         </Card>
@@ -638,7 +776,16 @@ export function ConferenceDetailPage() {
 
       {activeTab === "papers" && (
         <div className="space-y-3">
-          {papers.length === 0 ? (
+          {paperLoadError ? (
+            <Card className="p-8 text-center">
+              <p role="alert" className="mb-3 text-rose-700">
+                {paperLoadError}
+              </p>
+              <Button variant="outline" onClick={() => void load()}>
+                Thử lại
+              </Button>
+            </Card>
+          ) : papers.length === 0 ? (
             <Card className="p-8 text-center">
               <FileText className="mx-auto h-10 w-10 text-slate-300" />
               <p className="mt-3 text-slate-500">
@@ -647,11 +794,7 @@ export function ConferenceDetailPage() {
             </Card>
           ) : (
             papers.map((paper) => (
-              <button
-                key={paper.id}
-                onClick={() => navigate("paper-detail", { id: paper.id })}
-                className="block w-full rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm transition-all hover:shadow-md hover:border-teal-300"
-              >
+              <Card key={paper.id} className="p-4">
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0 flex-1">
                     <h4 className="font-medium text-slate-900">
@@ -660,63 +803,35 @@ export function ConferenceDetailPage() {
                     <p className="mt-1 text-sm text-slate-500 line-clamp-1">
                       {paper.abstract}
                     </p>
-                    <p className="mt-1 text-xs text-slate-400">
-                      Tác giả:{" "}
-                      {typeof paper.submitted_by === "object"
-                        ? (paper.submitted_by?.full_name ?? "Ẩn danh")
-                        : "N/A"}
-                    </p>
+                    {paper.can_open ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-3"
+                        onClick={() =>
+                          navigate("paper-detail", { id: paper.id })
+                        }
+                      >
+                        Xem chi tiết
+                      </Button>
+                    ) : (
+                      <p className="mt-2 text-xs text-slate-500">
+                        Nội dung chi tiết chưa được công bố.
+                      </p>
+                    )}
                   </div>
                   <Badge className={PAPER_STATUS_COLORS[paper.status]}>
                     {PAPER_STATUS_LABELS[paper.status]}
                   </Badge>
-                </div>
-              </button>
-            ))
-          )}
-        </div>
-      )}
-
-      {activeTab === "sessions" && (
-        <div className="space-y-3">
-          {sessions.length === 0 ? (
-            <Card className="p-8 text-center">
-              <ScheduleIcon className="mx-auto h-10 w-10 text-slate-300" />
-              <p className="mt-3 text-slate-500">Chưa có phiên báo cáo nào</p>
-            </Card>
-          ) : (
-            sessions.map((session) => (
-              <Card key={session.id} className="p-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1">
-                    <h4 className="font-medium text-slate-900">
-                      {session.title}
-                    </h4>
-                    {session.description && (
-                      <p className="mt-1 text-sm text-slate-500">
-                        {session.description}
-                      </p>
-                    )}
-                    <div className="mt-2 flex flex-wrap gap-4 text-xs text-slate-500">
-                      <span className="flex items-center gap-1">
-                        <Clock className="h-3.5 w-3.5" />
-                        {new Date(session.start_time).toLocaleString(
-                          "vi-VN",
-                        )} -{" "}
-                        {new Date(session.end_time).toLocaleTimeString("vi-VN")}
-                      </span>
-                      {session.room && <span>Phòng: {session.room}</span>}
-                      {session.speaker && (
-                        <span>Diễn giả: {session.speaker.full_name}</span>
-                      )}
-                    </div>
-                  </div>
                 </div>
               </Card>
             ))
           )}
         </div>
       )}
+
+      {activeTab === "sessions" && <AgendaView sessions={sessions} />}
+      {activeTab === "resources" && <ResourceCenter conferenceId={conferenceId} />}
 
       {activeTab === "participants" && (
         <div className="space-y-4">
@@ -956,12 +1071,45 @@ export function ConferenceDetailPage() {
               <p className="mt-2 font-mono text-xs text-slate-400">
                 {attendanceSession.code}
               </p>
-              {checkinOpen && !myRegistration.attended && <div className="mt-5 w-full border-t pt-4">
-                <label className="block text-sm font-medium text-slate-700">Mã điểm danh<input value={selfCheckinCode} onChange={event => setSelfCheckinCode(event.target.value)} placeholder="Nhập mã do ban tổ chức cung cấp" className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2" /></label>
-                <Button variant="outline" className="mt-3 w-full" onClick={() => setScannerOpen((value) => !value)}><QrCode className="h-4 w-4" /> {scannerOpen ? "Đóng camera" : "Quét QR bằng camera"}</Button>
-                {scannerOpen && <video ref={scannerVideoRef} className="mt-3 aspect-video w-full rounded-lg bg-slate-900 object-cover" autoPlay muted playsInline />}
-                <Button className="mt-3 w-full" disabled={checkingIn || !selfCheckinCode.trim()} onClick={() => void handleSelfCheckin()}>{checkingIn ? "Đang điểm danh..." : "Xác nhận điểm danh"}</Button>
-              </div>}
+              {checkinOpen && !myRegistration.attended && (
+                <div className="mt-5 w-full border-t pt-4">
+                  <label className="block text-sm font-medium text-slate-700">
+                    Mã điểm danh
+                    <input
+                      value={selfCheckinCode}
+                      onChange={(event) =>
+                        setSelfCheckinCode(event.target.value)
+                      }
+                      placeholder="Nhập mã do ban tổ chức cung cấp"
+                      className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2"
+                    />
+                  </label>
+                  <Button
+                    variant="outline"
+                    className="mt-3 w-full"
+                    onClick={() => setScannerOpen((value) => !value)}
+                  >
+                    <QrCode className="h-4 w-4" />{" "}
+                    {scannerOpen ? "Đóng camera" : "Quét QR bằng camera"}
+                  </Button>
+                  {scannerOpen && (
+                    <video
+                      ref={scannerVideoRef}
+                      className="mt-3 aspect-video w-full rounded-lg bg-slate-900 object-cover"
+                      autoPlay
+                      muted
+                      playsInline
+                    />
+                  )}
+                  <Button
+                    className="mt-3 w-full"
+                    disabled={checkingIn || !selfCheckinCode.trim()}
+                    onClick={() => void handleSelfCheckin()}
+                  >
+                    {checkingIn ? "Đang điểm danh..." : "Xác nhận điểm danh"}
+                  </Button>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -1024,7 +1172,12 @@ export function ConferenceDetailPage() {
 }
 
 function DetailItem({ label, value }: { label: string; value: string }) {
-  return <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">{label}</p><p className="mt-1 text-sm font-medium text-slate-800">{value}</p></div>;
+  return (
+    <div className="rounded-lg bg-slate-50 p-3">
+      <p className="text-xs text-slate-500">{label}</p>
+      <p className="mt-1 text-sm font-medium text-slate-800">{value}</p>
+    </div>
+  );
 }
 
 function formatOptionalDateTime(value?: string | null) {
@@ -1032,7 +1185,11 @@ function formatOptionalDateTime(value?: string | null) {
 }
 
 function formatEventFormat(value?: string | null) {
-  return value === "online" ? "Trực tuyến" : value === "hybrid" ? "Kết hợp" : "Trực tiếp";
+  return value === "online"
+    ? "Trực tuyến"
+    : value === "hybrid"
+      ? "Kết hợp"
+      : "Trực tiếp";
 }
 
 function toDateTimeInput(value: string) {

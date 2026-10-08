@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { transform } from 'esbuild';
-const { code } = await transform(await readFile(new URL('../../src/lib/reportAnalytics.ts', import.meta.url), 'utf8'), { loader: 'ts', format: 'esm' });
+import { build } from 'esbuild';
+const result = await build({ entryPoints: [fileURLToPath(new URL('../../src/lib/reportAnalytics.ts', import.meta.url))], bundle: true, write: false, platform: 'node', format: 'esm' });
+const code = result.outputFiles[0].text;
 const { buildReport, presetRange, reportCsv } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
 const filter = { from: '2026-09-01', to: '2026-09-30', conference: '', status: '' };
 function fixture() {

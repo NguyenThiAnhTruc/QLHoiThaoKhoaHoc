@@ -68,7 +68,7 @@ npx supabase secrets set 'GMAIL_CLIENT_ID=YOUR_CLIENT_ID' 'GMAIL_CLIENT_SECRET=Y
 
 ## 5. Đảm bảo hồ sơ có email rồi deploy
 
-Nếu database chưa có cột `profiles.contact_email`, mở **Supabase Dashboard → SQL Editor**, chạy toàn bộ file `supabase/migrations/20260925_participant_contact_email.sql`. Migration này thêm cột và điền email hiện có từ Supabase Auth khi có thể. Sau đó vào PowerShell ở thư mục gốc dự án và deploy:
+Nếu database chưa có cột `profiles.contact_email`, mở **Supabase Dashboard → SQL Editor**, chạy toàn bộ file `supabase/migrations/conference_updates.sql`. Migration này thêm cột và điền email hiện có từ Supabase Auth khi có thể. Sau đó vào PowerShell ở thư mục gốc dự án và deploy:
 
 ```powershell
 npx supabase functions deploy send-gmail-notification

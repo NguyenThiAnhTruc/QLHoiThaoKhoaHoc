@@ -2,9 +2,9 @@
 
 ## Triển khai
 
-Database đang sử dụng: chạy `migrations/20260925_reviewer_workflow.sql` trong SQL
-Editor sau `20260925_author_workflow.sql`, rồi triển khai frontend mới.
-Database mới: bản SQL tổng đã bao gồm cả hai bản cập nhật.
+Database đang sử dụng: chạy `migrations/conference_updates.sql` trong SQL
+Editor, rồi triển khai frontend mới.
+Database mới: chạy file khởi tạo rồi `conference_updates.sql`.
 Chạy lại migration Reviewer không xóa phân công hay kết quả đã có.
 
 ## Quy trình

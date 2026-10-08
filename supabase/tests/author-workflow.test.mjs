@@ -1,3 +1,4 @@
+import { readSqlSection } from './sqlSections.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
@@ -22,9 +23,9 @@ test('author workflow database integration', async (t) => {
   `);
   const baseline = await readFile(new URL('../migrations/conference_management_supabase.sql', import.meta.url), 'utf8');
   await db.exec(baseline.split('-- 21. DEMO ACCOUNTS')[0].replace('CREATE EXTENSION IF NOT EXISTS pgcrypto;', ''));
-  await db.exec(await readFile(new URL('../migrations/20260923_role_permissions.sql', import.meta.url), 'utf8'));
-  await db.exec(await readFile(new URL('../migrations/20260924_reporting.sql', import.meta.url), 'utf8'));
-  const migration = await readFile(new URL('../migrations/20260925_author_workflow.sql', import.meta.url), 'utf8');
+  await db.exec(await readSqlSection('20260923_role_permissions'));
+  await db.exec(await readSqlSection('20260924_reporting'));
+  const migration = await readSqlSection('20260925_author_workflow');
   await db.exec(migration);
   await db.exec(migration); // Re-applying the patch is safe.
   const owner = '10000000-0000-0000-0000-000000000001';
@@ -175,7 +176,7 @@ test('author workflow database integration', async (t) => {
     await asUser(null);
     await assert.rejects(save(),/đăng nhập/);
   });
-  const reviewerMigration = await readFile(new URL('../migrations/20260925_reviewer_workflow.sql', import.meta.url), 'utf8');
+  const reviewerMigration = await readSqlSection('20260925_reviewer_workflow');
   await db.exec(reviewerMigration);
   await db.exec(reviewerMigration);
   const invitationPaper = '30000000-0000-0000-0000-000000000003';

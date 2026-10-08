@@ -1,3 +1,4 @@
+import { DashboardTasks } from "@/components/DashboardTasks";
 import { useEffect, useState } from "react";
 import {
   CalendarDays,
@@ -27,6 +28,7 @@ export function RoleDashboard() {
   const { profile } = useAuth();
   const { navigate } = useRouter();
   const organizer = profile?.role === "organizer";
+  const author = profile?.role === "author";
   const [conferences, setConferences] = useState<Conference[]>([]);
   const [papers, setPapers] = useState<Paper[]>([]);
   const [people, setPeople] = useState(0);
@@ -94,7 +96,7 @@ export function RoleDashboard() {
                 .eq("user_id", profile.id),
               supabase
                 .rpc("read_papers")
-                .select("*")
+                .select("*, conference:conferences(*)")
                 .order("created_at", { ascending: false }),
               supabase
                 .from("participants")
@@ -124,9 +126,7 @@ export function RoleDashboard() {
           if (!cancelled) {
             setPapers(own);
             setConferences(
-              joined.flatMap((item) =>
-                item.conference ? [item.conference] : [],
-              ),
+              [...new Map([...joined.flatMap((item) => item.conference ? [item.conference] : []), ...own.flatMap((paper) => paper.conference ? [paper.conference] : [])].map((conference) => [conference.id,conference])).values()],
             );
             setPendingReviews(reviewResult.count ?? 0);
           }
@@ -241,6 +241,7 @@ export function RoleDashboard() {
         </Card>
       ) : (
         <>
+          <DashboardTasks papers={papers} conferences={conferences} organizer={organizer} />
           <div className="grid gap-4 sm:grid-cols-3">
             {stats.map(({ label, value, icon: Icon }) => (
               <Card key={label} className="p-5">
@@ -250,7 +251,7 @@ export function RoleDashboard() {
               </Card>
             ))}
           </div>
-          <div className="flex flex-wrap gap-2">
+          {!author && <div className="flex flex-wrap gap-2">
             {organizer ? (
               <>
                 <Button variant="outline" onClick={() => navigate("sessions")}>
@@ -285,7 +286,7 @@ export function RoleDashboard() {
                 </Button>
               </>
             )}
-          </div>
+          </div>}
           <div className="grid items-start gap-6 xl:grid-cols-2">
             <Card className="overflow-hidden">
               <h2 className="border-b border-slate-200 p-5 font-semibold">

@@ -1,6 +1,6 @@
 # Thống kê & Báo cáo
 
-Áp dụng `migrations/20260924_reporting.sql` trong Supabase SQL Editor để bật ghi nhận hủy đăng ký và camera-ready. Migration không sửa trạng thái nghiệp vụ cũ và không suy đoán lịch sử đã mất. Tài khoản admin mở tab **Thống kê & Báo cáo** rồi bấm **Làm mới**.
+Áp dụng `migrations/conference_updates.sql` trong Supabase SQL Editor để bật ghi nhận hủy đăng ký và camera-ready. Migration không sửa trạng thái nghiệp vụ cũ và không suy đoán lịch sử đã mất. Tài khoản admin mở tab **Thống kê & Báo cáo** rồi bấm **Làm mới**.
 
 ## Phạm vi và cách tính
 

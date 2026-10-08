@@ -10,9 +10,9 @@ import { showToast } from '@/components/ui/toastStore';
 import {
   PAPER_STATUS_LABELS,
   PAPER_STATUS_COLORS,
-  ALL_PAPER_STATUSES,
 } from '@/lib/constants';
 import type { Paper, PaperStatus } from '@/types';
+import { PAPER_STATUS_DISPLAY_ORDER, PAPER_STATUS_NUMBERS } from '@/lib/paperWorkflow';
 
 export function PapersPage() {
   const { profile } = useAuth();
@@ -21,10 +21,34 @@ export function PapersPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<PaperStatus | 'all'>('all');
+  const [conferenceFilter, setConferenceFilter] = useState('');
+  const [scope, setScope] = useState<'all' | 'mine'>('all');
+  const [ownPaperIds, setOwnPaperIds] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(1);
   const pageSize = 8;
 
   const canSubmit = profile?.role === 'author' || profile?.role === 'admin';
+  const hideAwaitingAssignment = profile?.role === 'author' || profile?.role === 'reviewer';
+  const visibleStatuses = PAPER_STATUS_DISPLAY_ORDER.filter(
+    (status) => !hideAwaitingAssignment || status !== 'submitted',
+  );
+
+  useEffect(() => {
+    if (hideAwaitingAssignment && statusFilter === 'submitted') {
+      setStatusFilter('all');
+      setPage(1);
+    }
+  }, [hideAwaitingAssignment, statusFilter]);
+
+  useEffect(() => {
+    if (!profile?.id) return;
+    let cancelled = false;
+    void supabase.from('paper_authors').select('paper_id').eq('user_id', profile.id).then(({ data, error }) => {
+      if (error) showToast('error', 'Không thể tải bài báo của bạn');
+      if (!cancelled) setOwnPaperIds(new Set((data ?? []).map((row) => row.paper_id)));
+    });
+    return () => { cancelled = true; };
+  }, [profile?.id]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -48,10 +72,15 @@ export function PapersPage() {
   }, [load]);
 
   const filtered = papers.filter((p) => {
-    const matchesSearch = !search || p.title.toLowerCase().includes(search.toLowerCase());
+    const query = search.trim().toLowerCase();
+    const matchesSearch = !query || [p.title, p.abstract, p.keywords, p.problem_statement, p.objectives, p.author_group].some((value) => value?.toLowerCase().includes(query));
     const matchesStatus = statusFilter === 'all' || p.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+    const owner = typeof p.submitted_by === 'string' ? p.submitted_by : p.submitted_by?.id;
+    return matchesSearch && matchesStatus && (!conferenceFilter || p.conference_id === conferenceFilter)
+      && (scope === 'all' || owner === profile?.id || ownPaperIds.has(p.id));
+  }).sort((left, right) =>
+    PAPER_STATUS_DISPLAY_ORDER.indexOf(left.status) - PAPER_STATUS_DISPLAY_ORDER.indexOf(right.status)
+    || new Date(right.created_at).getTime() - new Date(left.created_at).getTime());
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
 
@@ -96,6 +125,39 @@ export function PapersPage() {
         </div>
       </div>
 
+      <div className="flex flex-wrap gap-3">
+        <select aria-label="Lọc hội thảo" value={conferenceFilter} onChange={(event) => { setConferenceFilter(event.target.value); setPage(1); }} className="rounded-lg border border-slate-300 bg-white px-3 py-2">
+          <option value="">Tất cả hội thảo</option>
+          {[...new Map(papers.map((paper) => [paper.conference_id, paper.conference?.title ?? paper.conference_id])).entries()].map(([id, title]) => <option key={id} value={id}>{title}</option>)}
+        </select>
+        <select aria-label="Phạm vi bài báo" value={scope} onChange={(event) => { setScope(event.target.value as 'all' | 'mine'); setPage(1); }} className="rounded-lg border border-slate-300 bg-white px-3 py-2">
+          <option value="all">Tất cả bài được xem</option><option value="mine">Bài báo của tôi</option>
+        </select>
+      </div>
+      <div className={`grid gap-3 sm:grid-cols-2 ${hideAwaitingAssignment ? 'xl:grid-cols-4' : 'xl:grid-cols-5'}`}>
+        {visibleStatuses.map((paperStatus) => {
+          const count = papers.filter((paper) => paper.status === paperStatus && (!conferenceFilter || paper.conference_id === conferenceFilter) && (scope === 'all' || (typeof paper.submitted_by === 'string' ? paper.submitted_by : paper.submitted_by?.id) === profile?.id || ownPaperIds.has(paper.id))).length;
+          const number = PAPER_STATUS_NUMBERS[paperStatus];
+          return (
+            <button
+              key={paperStatus}
+              type="button"
+              onClick={() => { setStatusFilter(paperStatus); setPage(1); }}
+              className={`rounded-xl border p-4 text-left transition hover:border-teal-400 ${
+                statusFilter === paperStatus ? "border-teal-500 bg-teal-50 ring-2 ring-teal-500/15" : "border-slate-200 bg-white"
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-semibold text-slate-700">
+                  {number ? `${number}. ` : ""}{PAPER_STATUS_LABELS[paperStatus]}
+                </span>
+                <Badge className={PAPER_STATUS_COLORS[paperStatus]}>{count}</Badge>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -119,7 +181,7 @@ export function PapersPage() {
           className="rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
         >
           <option value="all">Tất cả trạng thái</option>
-          {ALL_PAPER_STATUSES.map((s) => (
+          {visibleStatuses.map((s) => (
             <option key={s} value={s}>{PAPER_STATUS_LABELS[s]}</option>
           ))}
         </select>
@@ -192,6 +254,7 @@ export function PapersPage() {
 }
 
 function escapeCSVCell(value: string) {
-  const text = value.replace(/"/g, '""');
+  const safe = /^[\s]*[=+@-]/.test(value) ? "'" + value : value;
+  const text = safe.replace(/"/g, '""');
   return /[",\n\r]/.test(text) ? `"${text}"` : text;
 }
