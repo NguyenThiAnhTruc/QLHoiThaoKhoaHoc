@@ -1,4 +1,7 @@
-﻿import { AuthProvider } from "@/context/AuthContext";
+﻿import { SpeakerPage } from "@/pages/SpeakerPage";
+import { ResourcesPage } from "@/pages/ResourcesPage";
+import { SessionDetailPage } from "@/pages/SessionDetailPage";
+import { AuthProvider } from "@/context/AuthContext";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/context/useAuth";
 import { RouterProvider } from "@/context/RouterContext";
@@ -11,6 +14,8 @@ import { AuthPage } from "@/pages/AuthPage";
 import { ResetPasswordPage } from "@/pages/ResetPasswordPage";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { ConferencesPage } from "@/pages/ConferencesPage";
+import { TopicsPage } from "@/pages/TopicsPage";
+import { FundingPage } from "@/pages/FundingPage";
 import { ConferenceDetailPage } from "@/pages/ConferenceDetailPage";
 import { ConferenceFormPage } from "@/pages/ConferenceFormPage";
 import { PapersPage } from "@/pages/PapersPage";
@@ -100,6 +105,11 @@ function AppContent() {
         <RoleDashboard />
       ),
     conferences: <ConferencesPage />,
+    topics: <TopicsPage />,
+    funding: <FundingPage />,
+    speaker: <SpeakerPage />,
+    resources: <ResourcesPage />,
+    "session-detail": <SessionDetailPage key={route.params.id} />,
     "conference-detail": <ConferenceDetailPage />,
     "conference-form": <ConferenceFormPage />,
     papers: <PapersPage />,

@@ -7,7 +7,7 @@ import { useAuth } from "@/context/useAuth";
 import { Button } from "@/components/ui/Button";
 import { Input, Textarea, Select } from "@/components/ui/Field";
 import { showToast } from "@/components/ui/toastStore";
-import type { Conference, Profile } from "@/types";
+import type { Conference, ConferenceTopic, Profile } from "@/types";
 
 interface PaperFormPageProps {
   embedded?: boolean;
@@ -36,14 +36,20 @@ export function PaperFormPage({
 
   const [conferences, setConferences] = useState<Conference[]>([]);
   const [conferenceId, setConferenceId] = useState(requestedConferenceId ?? "");
+  const [step, setStep] = useState(0);
   const [title, setTitle] = useState("");
   const [abstract, setAbstract] = useState("");
   const [keywords, setKeywords] = useState("");
+  const [problem, setProblem] = useState("");
+  const [goals, setGoals] = useState("");
+  const [groupName, setGroupName] = useState("");
+  const [mainAuthorId, setMainAuthorId] = useState("");
   const [fileUrl, setFileUrl] = useState("");
   const [paperFile, setPaperFile] = useState<File | null>(null);
   const [versionNotes, setVersionNotes] = useState("");
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [selectedAuthorIds, setSelectedAuthorIds] = useState<string[]>([]);
+  const [authorParticipation, setAuthorParticipation] = useState<Record<string, "participating" | "not_participating">>({});
   const [authorSearch, setAuthorSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [saveStage, setSaveStage] = useState("");
@@ -54,6 +60,8 @@ export function PaperFormPage({
   const [canSave, setCanSave] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [reviewerIds, setReviewerIds] = useState<string[]>([]);
+  const [topics, setTopics] = useState<ConferenceTopic[]>([]);
+  const [selectedTopicIds, setSelectedTopicIds] = useState<string[]>([]);
   const [ownerId, setOwnerId] = useState<string | null>(null);
   const submitting = useRef(false);
   const uploadedFile = useRef<{ file: File; path: string } | null>(null);
@@ -104,6 +112,7 @@ export function PaperFormPage({
         }
         setExpectedUpdatedAt(data.updated_at);
         setOwnerId(data.submitted_by);
+        setAuthorParticipation((current) => ({ ...current, [data.submitted_by]: data.author_participation_status ?? "participating" }));
         const { data: allowed, error: accessError } = await supabase.rpc("can_edit_paper_submission", { target_paper_id: editId });
         if (accessError) throw accessError;
         if (!allowed) throw new Error("Bạn không có quyền sửa bài hoặc đã hết hạn chỉnh sửa.");
@@ -111,6 +120,12 @@ export function PaperFormPage({
         if (reviewError) throw reviewError;
         setReviewerIds((assigned ?? []).map((review) => review.reviewer_id));
         setConferenceId(data.conference_id);
+        const { data: paperTopicRows, error: paperTopicsError } = await supabase
+          .from("paper_topics")
+          .select("topic_id")
+          .eq("paper_id", editId);
+        if (paperTopicsError) throw paperTopicsError;
+        setSelectedTopicIds((paperTopicRows ?? []).map((row) => row.topic_id));
         const { data: currentConference, error: currentConfError } = await supabase
           .from("conferences")
           .select("*")
@@ -126,20 +141,29 @@ export function PaperFormPage({
         setTitle(data.title);
         setAbstract(data.abstract ?? "");
         setKeywords(data.keywords ?? "");
+        setProblem(data.problem_statement ?? "");
+        setGoals(data.objectives ?? "");
+        setGroupName(data.author_group ?? "");
+        setMainAuthorId(data.corresponding_author_id ?? data.submitted_by ?? "");
         setFileUrl(data.file_url ?? "");
 
         const { data: authors, error: authorsError } = await supabase
           .from("paper_authors")
-          .select("user_id")
-          .eq("paper_id", editId);
+          .select("user_id, participation_status")
+          .eq("paper_id", editId).order("author_order");
         if (authorsError) throw authorsError;
         if (authors) {
           setSelectedAuthorIds(authors.map((author) => author.user_id));
+          setAuthorParticipation({ [data.submitted_by]: data.author_participation_status ?? "participating", ...Object.fromEntries(authors.map((author) => [
+            author.user_id,
+            author.participation_status === "not_participating" ? "not_participating" : "participating",
+          ])) });
         }
         setCanSave(true);
       } else {
         if (requestedConferenceId) setConferenceId(requestedConferenceId);
         setOwnerId(profile?.id ?? null);
+        setMainAuthorId(profile?.id ?? "");
         setCanSave(profile?.role === "author" || profile?.role === "admin");
       }
       } catch (error) {
@@ -148,12 +172,42 @@ export function PaperFormPage({
     })();
   }, [editId, isEdit, navigate, requestedConferenceId, profile?.id, profile?.role]);
 
+  useEffect(() => {
+    if (!conferenceId) {
+      setTopics([]);
+      return;
+    }
+    let cancelled = false;
+    setTopics([]);
+    void supabase.from("conference_topics").select("*").eq("conference_id", conferenceId)
+      .order("name").then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) showToast("error", "Không thể tải chủ đề hội thảo");
+        setTopics((data ?? []) as ConferenceTopic[]);
+        setSelectedTopicIds((current) => current.filter((id) => (data ?? []).some((topic) => topic.id === id)));
+      });
+    return () => { cancelled = true; };
+  }, [conferenceId]);
+
+  function nextStep() {
+    if (step === 0 && (!conferenceId || !title.trim() || !abstract.trim() || !keywords.trim())) {
+      showToast("error", "Chọn hội thảo và nhập tiêu đề, tóm tắt, từ khóa trước khi tiếp tục"); return;
+    }
+    if (step === 1 && (!mainAuthorId || (mainAuthorId !== ownerId && !selectedAuthorIds.includes(mainAuthorId)))) {
+      showToast("error", "Chọn tác giả chính thuộc nhóm tác giả"); return;
+    }
+    setStep((current) => Math.min(2,current+1));
+  }
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (submitting.current || !canSave) return;
-    if (!conferenceId || !title.trim() || !abstract.trim() || (!paperFile && !fileUrl.trim())) {
-      showToast("error", "Vui lòng chọn hội thảo, nhập tiêu đề, tóm tắt và file bài báo");
+    if (step < 2) { nextStep(); return; }
+    if (!conferenceId || !title.trim() || !abstract.trim() || !keywords.trim() || (!paperFile && !fileUrl.trim())) {
+      showToast("error", "Vui lòng chọn hội thảo, nhập tiêu đề, tóm tắt, từ khóa và file bài báo");
       return;
+    }
+    if (!mainAuthorId || (mainAuthorId !== ownerId && !selectedAuthorIds.includes(mainAuthorId))) {
+      showToast("error", "Vui lòng chọn tác giả chính thuộc nhóm tác giả"); return;
     }
     submitting.current = true;
     setLoading(true);
@@ -163,13 +217,15 @@ export function PaperFormPage({
       const uploadedUrl = await uploadPaperFile();
       if (paperFile && !uploadedUrl) return;
       setSaveStage("Đang lưu bài báo...");
-      const { data, error } = await withRequestTimeout((signal) => supabase.rpc("save_paper_submission", {
+      const { data, error } = await withRequestTimeout((signal) => supabase.rpc("save_complete_paper_submission", {
         target_paper_id: editId ?? submissionId.current,
         target_conference_id: conferenceId,
         paper_title: title.trim(), paper_abstract: abstract.trim(),
         paper_keywords: keywords.trim(), paper_file: uploadedUrl ?? fileUrl.trim(),
         author_ids: selectedAuthorIds, version_notes: versionNotes.trim(),
         expected_updated_at: expectedUpdatedAt,
+        topic_ids: selectedTopicIds, participation: authorParticipation,
+        problem, goals, group_name: groupName, main_author_id: mainAuthorId,
       }).abortSignal(signal), 60_000,
         "Chưa nhận được kết quả lưu bài sau 60 giây. Hãy kiểm tra kết nối và tải lại bài để xác nhận dữ liệu trước khi lưu lại.");
       if (error) {
@@ -298,7 +354,8 @@ export function PaperFormPage({
       >
         {saveError && <p role="alert" className="text-sm text-rose-700">{saveError}</p>}
         <fieldset disabled={loading} className="space-y-5">
-        <p className="text-sm text-slate-500">Tải lên PDF hoặc nhập URL file. File tải lên được ưu tiên. Mỗi file mới được lưu thành một phiên bản riêng.</p>
+        <ol className="grid grid-cols-3 gap-2" aria-label="Các bước nộp bài">{["Thông tin bài", "Tác giả", "Tệp đính kèm"].map((label,index) => <li key={label}><button type="button" disabled={index > step} onClick={() => setStep(index)} aria-current={index === step ? "step" : undefined} className={`w-full rounded-lg px-2 py-3 text-sm ${index === step ? "bg-teal-700 text-white" : "bg-slate-100 text-slate-600"}`}>{index+1}. {label}</button></li>)}</ol>
+        <section hidden={step !== 0} className="space-y-5" aria-label="Thông tin bài">
         <Select
           label="Hội thảo *"
           value={conferenceId}
@@ -312,6 +369,24 @@ export function PaperFormPage({
             </option>
           ))}
         </Select>
+
+        {topics.length > 0 && (
+          <fieldset className="space-y-2">
+            <legend className="text-sm font-medium text-slate-700">Chủ đề bài báo</legend>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {topics.map((topic) => (
+                <label key={topic.id} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700">
+                  <input type="checkbox" checked={selectedTopicIds.includes(topic.id)}
+                    onChange={(event) => setSelectedTopicIds((current) => event.target.checked
+                      ? [...new Set([...current, topic.id])]
+                      : current.filter((id) => id !== topic.id))}
+                    className="h-4 w-4 accent-teal-600" />
+                  {topic.name}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        )}
 
         <Input
           label="Tiêu đề bài báo *"
@@ -329,12 +404,94 @@ export function PaperFormPage({
         />
 
         <Input
-          label="Từ khóa"
+          label="Từ khóa *"
           value={keywords}
           onChange={(e) => setKeywords(e.target.value)}
           placeholder="Cách nhau bởi dấu phẩy"
         />
 
+          <Textarea label="Đặt vấn đề" value={problem} onChange={(event) => setProblem(event.target.value)} />
+          <Textarea label="Mục tiêu nghiên cứu" value={goals} onChange={(event) => setGoals(event.target.value)} />
+        </section>
+        <section hidden={step !== 1} className="space-y-5" aria-label="Tác giả">
+        <div className="space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-slate-700">
+              Đồng tác giả
+            </label>
+            <p className="mt-1 text-xs text-slate-500">
+              Chọn các tài khoản cùng tham gia bài báo này. Người đang phản biện bài sẽ không xuất hiện.
+            </p>
+          </div>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Tìm đồng tác giả..."
+              value={authorSearch}
+              onChange={(e) => setAuthorSearch(e.target.value)}
+              className="w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-10 pr-4 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+            />
+          </div>
+          <div className="space-y-3">
+          <Input label="Tên nhóm tác giả" value={groupName} onChange={(event) => setGroupName(event.target.value)} />
+          {ownerId && <Select label="Trạng thái tham gia của tác giả nộp bài" value={authorParticipation[ownerId] ?? "participating"} onChange={(event) => setAuthorParticipation((current) => ({...current, [ownerId]: event.target.value as "participating" | "not_participating"}))}><option value="participating">Tham gia</option><option value="not_participating">Không tham gia</option></Select>}
+          <Select label="Tác giả chính / liên hệ" value={mainAuthorId} onChange={(event) => setMainAuthorId(event.target.value)}>
+            <option value="">Chọn tác giả chính</option>
+            {profiles.filter((user) => user.id === ownerId || selectedAuthorIds.includes(user.id)).map((user) => <option key={user.id} value={user.id}>{user.full_name}</option>)}
+          </Select>
+          <p className="text-sm text-slate-600">{[profiles.find((user) => user.id === ownerId)?.full_name, ...selectedAuthorIds.map((id) => profiles.find((user) => user.id === id)?.full_name)].filter(Boolean).join(' & ')}</p>
+        </div>
+        <div className="max-h-48 overflow-y-auto rounded-lg border border-slate-200">
+            {authorOptions.length === 0 ? (
+              <p className="px-4 py-3 text-sm text-slate-500">
+                Không tìm thấy tài khoản phù hợp
+              </p>
+            ) : (
+              authorOptions.map((author) => (
+                <label
+                  key={author.id}
+                  className="flex cursor-pointer items-center gap-3 border-b border-slate-100 px-4 py-3 last:border-b-0 hover:bg-slate-50"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedAuthorIds.includes(author.id)}
+                    onChange={() => {
+                      toggleAuthor(author.id);
+                      if (!selectedAuthorIds.includes(author.id)) {
+                        setAuthorParticipation((current) => ({ ...current, [author.id]: "participating" }));
+                      }
+                    }}
+                    className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium text-slate-800">
+                      {author.full_name || "Chưa đặt tên"}
+                    </span>
+                    <span className="block truncate text-xs text-slate-500">
+                      {author.organization || "Chưa cập nhật đơn vị"}
+                    </span>
+                  </span>
+                  {selectedAuthorIds.includes(author.id) && <select
+                    aria-label={`Trạng thái tham gia của ${author.full_name}`}
+                    value={authorParticipation[author.id] ?? "participating"}
+                    onChange={(event) => setAuthorParticipation((current) => ({
+                      ...current,
+                      [author.id]: event.target.value as "participating" | "not_participating",
+                    }))}
+                    className="rounded border border-slate-200 px-2 py-1 text-xs"
+                  >
+                    <option value="participating">Tham gia</option>
+                    <option value="not_participating">Không tham gia</option>
+                  </select>}
+                </label>
+              ))
+            )}
+          </div>
+        </div>
+
+        </section>
+        <section hidden={step !== 2} className="space-y-5" aria-label="Tệp đính kèm">
         <Input
           label="URL file bài báo"
           value={fileUrl}
@@ -360,56 +517,7 @@ export function PaperFormPage({
           )}
         </div>
 
-        <div className="space-y-3">
-          <div>
-            <label className="block text-sm font-medium text-slate-700">
-              Đồng tác giả
-            </label>
-            <p className="mt-1 text-xs text-slate-500">
-              Chọn các tài khoản cùng tham gia bài báo này. Người đang phản biện bài sẽ không xuất hiện.
-            </p>
-          </div>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Tìm đồng tác giả..."
-              value={authorSearch}
-              onChange={(e) => setAuthorSearch(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-10 pr-4 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
-            />
-          </div>
-          <div className="max-h-48 overflow-y-auto rounded-lg border border-slate-200">
-            {authorOptions.length === 0 ? (
-              <p className="px-4 py-3 text-sm text-slate-500">
-                Không tìm thấy tài khoản phù hợp
-              </p>
-            ) : (
-              authorOptions.map((author) => (
-                <label
-                  key={author.id}
-                  className="flex cursor-pointer items-center gap-3 border-b border-slate-100 px-4 py-3 last:border-b-0 hover:bg-slate-50"
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedAuthorIds.includes(author.id)}
-                    onChange={() => toggleAuthor(author.id)}
-                    className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium text-slate-800">
-                      {author.full_name || "Chưa đặt tên"}
-                    </span>
-                    <span className="block truncate text-xs text-slate-500">
-                      {author.organization || "Chưa cập nhật đơn vị"}
-                    </span>
-                  </span>
-                </label>
-              ))
-            )}
-          </div>
-        </div>
-
+        </section>
         <div className="flex justify-end gap-3 pt-2">
           <Button
             type="button"
@@ -426,9 +534,8 @@ export function PaperFormPage({
           >
             Hủy
           </Button>
-          <Button type="submit" disabled={loading}>
-            <Save className="h-4 w-4" /> {loading ? saveStage : "Lưu"}
-          </Button>
+          {step > 0 && <Button type="button" variant="outline" onClick={() => setStep(step-1)}>Bước trước</Button>}
+          {step < 2 ? <Button type="button" onClick={nextStep}>Tiếp tục</Button> : <Button type="submit" disabled={loading}><Save className="h-4 w-4" />{loading ? saveStage : "Lưu bài"}</Button>}
         </div>
         </fieldset>
       </form>

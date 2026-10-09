@@ -201,6 +201,7 @@ export function PaperDetailPage() {
       paper?.status ?? "submitted",
       reviews.length > 0,
       completedReviews.length > 0,
+      paper?.conference?.review_enabled !== false,
     );
     if (!allowedStatuses.includes(newStatus)) {
       showToast("error", "Không thể chuyển trạng thái ở bước hiện tại");
@@ -489,6 +490,10 @@ export function PaperDetailPage() {
             {paper.abstract || "Chưa có tóm tắt"}
           </p>
         </div>
+        {paper.author_group && <p className="mt-3 text-sm text-slate-600">Nhóm tác giả: {paper.author_group}</p>}
+        {paper.corresponding_author_id && <p className="mt-2 text-sm font-medium text-teal-700">Tác giả chính / liên hệ: {authors.find((author) => author.id === paper.corresponding_author_id)?.full_name || (typeof paper.submitted_by === "object" && paper.submitted_by?.id === paper.corresponding_author_id ? paper.submitted_by.full_name : "Chưa có thông tin")}</p>}
+        {paper.problem_statement && <section className="mt-4"><h3 className="font-semibold">Đặt vấn đề</h3><p className="mt-2 whitespace-pre-wrap text-slate-600">{paper.problem_statement}</p></section>}
+        {paper.objectives && <section className="mt-4"><h3 className="font-semibold">Mục tiêu nghiên cứu</h3><p className="mt-2 whitespace-pre-wrap text-slate-600">{paper.objectives}</p></section>}
         {paper.keywords && (
           <div>
             <h3 className="text-sm font-semibold text-slate-700 mb-1.5">
@@ -529,7 +534,11 @@ export function PaperDetailPage() {
                 Tiến độ phản biện
               </h3>
               <p className="mt-1 text-sm text-slate-500">
-                {reviews.length === 0
+                {paper.status === "accepted" || paper.status === "rejected"
+                  ? "Ban tổ chức đã gửi quyết định cuối cùng."
+                  : paper.conference?.review_enabled === false
+                    ? "Ban tổ chức xét duyệt trực tiếp; hội thảo không sử dụng phản biện."
+                    : reviews.length === 0
                   ? "Bài báo đang chờ ban tổ chức phân công phản biện."
                   : `${completedReviews.length}/${reviews.length} phản biện đã hoàn thành.`}
               </p>
@@ -622,6 +631,7 @@ export function PaperDetailPage() {
               paper.status,
               reviews.length > 0,
               completedReviews.length > 0,
+              paper?.conference?.review_enabled !== false,
             ).map((s) => (
               <button
                 key={s}
@@ -640,6 +650,7 @@ export function PaperDetailPage() {
             paper.status,
             reviews.length > 0,
             completedReviews.length > 0,
+            paper?.conference?.review_enabled !== false,
           ).length === 0 && (
             <p className="mt-3 text-sm text-slate-500">
               {paper.status === "submitted"
@@ -664,7 +675,7 @@ export function PaperDetailPage() {
                 ? "Nhiệm vụ phản biện"
                 : `Nhận xét phản biện (${visibleReviews.length})`}
             </h3>
-            {canEdit && (
+            {canEdit && paper.conference?.review_enabled !== false && (
               <Button size="sm" onClick={openAssignModal}>
                 <Plus className="h-4 w-4" /> Phân công
               </Button>

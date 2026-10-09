@@ -19,7 +19,10 @@ export function getPaperStatusTransitions(
   currentStatus: PaperStatus,
   hasReviewAssignment: boolean,
   hasCompletedReview: boolean,
+  reviewEnabled = true,
 ): PaperStatus[] {
+  if (!reviewEnabled && ["submitted", "under_review", "revision_required"].includes(currentStatus))
+    return ["accepted", "rejected", "revision_required"].filter((status) => status !== currentStatus) as PaperStatus[];
   if (currentStatus === "submitted")
     return hasReviewAssignment ? ["under_review"] : [];
   if (currentStatus === "under_review")

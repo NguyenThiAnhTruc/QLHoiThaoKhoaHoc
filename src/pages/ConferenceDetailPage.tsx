@@ -1,13 +1,14 @@
+import { ResourceCenter } from "@/components/ResourceCenter";
+import { AgendaView } from "@/components/AgendaView";
 import { DateInput } from "@/components/ui/DateInput";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BrowserMultiFormatReader } from "@zxing/browser";
+import { useQrScanner } from "@/context/useQrScanner";
 import { TransferConferenceOwner } from "@/components/TransferConferenceOwner";
 import {
   ArrowLeft,
   CalendarDays,
   MapPin,
   Users,
-  Clock,
   UserPlus,
   QrCode,
   FileText,
@@ -283,6 +284,13 @@ export function ConferenceDetailPage() {
       showToast("error", "Hội thảo đã đủ số lượng người tham dự");
       return;
     }
+    const { data: allowed, error: eligibilityError } = await supabase.rpc("can_register_for_conference", { conf_id: conferenceId });
+    if (eligibilityError || !allowed) {
+      showToast("error", conference.require_accepted_paper && profile.role === "author"
+        ? "Cần có bài báo được chấp nhận và hội thảo còn mở đăng ký."
+        : "Hội thảo không còn nhận đăng ký hoặc đã đủ số lượng.");
+      return;
+    }
     const { error } = await supabase
       .from("participants")
       .insert({ conference_id: conferenceId, user_id: profile.id });
@@ -334,23 +342,10 @@ export function ConferenceDetailPage() {
   const selfCheckinHandler = useRef(handleSelfCheckin);
   selfCheckinHandler.current = handleSelfCheckin;
 
-  useEffect(() => {
-    if (!scannerOpen || !scannerVideoRef.current) return;
-    const reader = new BrowserMultiFormatReader();
-    let controls: { stop: () => void } | undefined;
-    void reader
-      .decodeFromVideoDevice(undefined, scannerVideoRef.current, (result) => {
-        if (!result) return;
-        setSelfCheckinCode(result.getText());
-        setScannerOpen(false);
-        void selfCheckinHandler.current(result.getText());
-      })
-      .then((value) => {
-        controls = value;
-      })
-      .catch(() => showToast("error", "Không thể mở camera để quét QR"));
-    return () => controls?.stop();
-  }, [scannerOpen]);
+  useQrScanner(scannerOpen, scannerVideoRef, (code) => {
+    setSelfCheckinCode(code); setScannerOpen(false);
+    void selfCheckinHandler.current(code);
+  });
 
   async function handleToggleAttendance(part: Participant) {
     const { error } = await supabase
@@ -475,6 +470,7 @@ export function ConferenceDetailPage() {
       label: `Lịch trình (${sessions.length})`,
       icon: <ScheduleIcon className="h-4 w-4" />,
     },
+    {key:"resources",label:"Tài liệu",icon:<FileText className="h-4 w-4"/>},
     {
       key: "participants",
       label: `Người tham dự (${participants.length})`,
@@ -647,6 +643,7 @@ export function ConferenceDetailPage() {
               )}
             </div>
           )}
+          {conference.require_accepted_paper && profile?.role === "author" && !isRegistered && <p className="mt-4 text-sm text-amber-200">Tác giả cần có bài được chấp nhận trước khi đăng ký tham dự.</p>}
           {profile && canRegisterRole && !isRegistered && registrationOpen && (
             <Button onClick={handleRegister}>
               <UserPlus className="h-4 w-4" /> Đăng ký tham gia
@@ -832,46 +829,8 @@ export function ConferenceDetailPage() {
         </div>
       )}
 
-      {activeTab === "sessions" && (
-        <div className="space-y-3">
-          {sessions.length === 0 ? (
-            <Card className="p-8 text-center">
-              <ScheduleIcon className="mx-auto h-10 w-10 text-slate-300" />
-              <p className="mt-3 text-slate-500">Chưa có phiên báo cáo nào</p>
-            </Card>
-          ) : (
-            sessions.map((session) => (
-              <Card key={session.id} className="p-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1">
-                    <h4 className="font-medium text-slate-900">
-                      {session.title}
-                    </h4>
-                    {session.description && (
-                      <p className="mt-1 text-sm text-slate-500">
-                        {session.description}
-                      </p>
-                    )}
-                    <div className="mt-2 flex flex-wrap gap-4 text-xs text-slate-500">
-                      <span className="flex items-center gap-1">
-                        <Clock className="h-3.5 w-3.5" />
-                        {new Date(session.start_time).toLocaleString(
-                          "vi-VN",
-                        )} -{" "}
-                        {new Date(session.end_time).toLocaleTimeString("vi-VN")}
-                      </span>
-                      {session.room && <span>Phòng: {session.room}</span>}
-                      {session.speaker && (
-                        <span>Diễn giả: {session.speaker.full_name}</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </Card>
-            ))
-          )}
-        </div>
-      )}
+      {activeTab === "sessions" && <AgendaView sessions={sessions} />}
+      {activeTab === "resources" && <ResourceCenter conferenceId={conferenceId} />}
 
       {activeTab === "participants" && (
         <div className="space-y-4">

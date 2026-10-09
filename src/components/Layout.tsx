@@ -41,6 +41,17 @@ const managementItems: NavItem[] = [
     icon: <CalendarDays className="h-5 w-5" />,
   },
   {
+    key: "topics",
+    label: "Chủ đề",
+    icon: <FileText className="h-5 w-5" />,
+    roles: ["admin", "organizer"],
+  },
+  {
+    key: "funding",
+    label: "Kinh phí",
+    icon: <FileText className="h-5 w-5" />,
+  },
+  {
     key: "papers",
     label: "Bài báo khoa học",
     icon: <FileText className="h-5 w-5" />,
@@ -55,7 +66,7 @@ const managementItems: NavItem[] = [
     key: "sessions",
     label: "Lịch trình",
     icon: <ScheduleIcon className="h-5 w-5" />,
-    roles: ["admin", "organizer", "reviewer"],
+    roles: ["admin", "organizer", "reviewer", "author"],
   },
   {
     key: "participants",
@@ -69,6 +80,7 @@ const managementItems: NavItem[] = [
     icon: <Award className="h-5 w-5" />,
   },
 ];
+managementItems.push({key:"speaker",label:"Báo cáo của tôi",icon:<User className="h-5 w-5"/>},{key:"resources",label:"Kho tài liệu",icon:<FileText className="h-5 w-5"/>});
 const systemItems: NavItem[] = [
   {
     key: "users",
@@ -121,7 +133,7 @@ export function Layout({ children }: { children: ReactNode }) {
     if (key === "papers" && ["paper-detail", "paper-form"].includes(route.page))
       return true;
     if (key === "reviews" && route.page === "review-detail") return true;
-    if (key === "sessions" && route.page === "session-form") return true;
+    if (key === "sessions" && ["session-form","session-detail"].includes(route.page)) return true;
     return route.page === key;
   }
 

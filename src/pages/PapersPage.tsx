@@ -21,6 +21,9 @@ export function PapersPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<PaperStatus | 'all'>('all');
+  const [conferenceFilter, setConferenceFilter] = useState('');
+  const [scope, setScope] = useState<'all' | 'mine'>('all');
+  const [ownPaperIds, setOwnPaperIds] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(1);
   const pageSize = 8;
 
@@ -36,6 +39,16 @@ export function PapersPage() {
       setPage(1);
     }
   }, [hideAwaitingAssignment, statusFilter]);
+
+  useEffect(() => {
+    if (!profile?.id) return;
+    let cancelled = false;
+    void supabase.from('paper_authors').select('paper_id').eq('user_id', profile.id).then(({ data, error }) => {
+      if (error) showToast('error', 'Không thể tải bài báo của bạn');
+      if (!cancelled) setOwnPaperIds(new Set((data ?? []).map((row) => row.paper_id)));
+    });
+    return () => { cancelled = true; };
+  }, [profile?.id]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -59,9 +72,12 @@ export function PapersPage() {
   }, [load]);
 
   const filtered = papers.filter((p) => {
-    const matchesSearch = !search || p.title.toLowerCase().includes(search.toLowerCase());
+    const query = search.trim().toLowerCase();
+    const matchesSearch = !query || [p.title, p.abstract, p.keywords, p.problem_statement, p.objectives, p.author_group].some((value) => value?.toLowerCase().includes(query));
     const matchesStatus = statusFilter === 'all' || p.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    const owner = typeof p.submitted_by === 'string' ? p.submitted_by : p.submitted_by?.id;
+    return matchesSearch && matchesStatus && (!conferenceFilter || p.conference_id === conferenceFilter)
+      && (scope === 'all' || owner === profile?.id || ownPaperIds.has(p.id));
   }).sort((left, right) =>
     PAPER_STATUS_DISPLAY_ORDER.indexOf(left.status) - PAPER_STATUS_DISPLAY_ORDER.indexOf(right.status)
     || new Date(right.created_at).getTime() - new Date(left.created_at).getTime());
@@ -109,9 +125,18 @@ export function PapersPage() {
         </div>
       </div>
 
+      <div className="flex flex-wrap gap-3">
+        <select aria-label="Lọc hội thảo" value={conferenceFilter} onChange={(event) => { setConferenceFilter(event.target.value); setPage(1); }} className="rounded-lg border border-slate-300 bg-white px-3 py-2">
+          <option value="">Tất cả hội thảo</option>
+          {[...new Map(papers.map((paper) => [paper.conference_id, paper.conference?.title ?? paper.conference_id])).entries()].map(([id, title]) => <option key={id} value={id}>{title}</option>)}
+        </select>
+        <select aria-label="Phạm vi bài báo" value={scope} onChange={(event) => { setScope(event.target.value as 'all' | 'mine'); setPage(1); }} className="rounded-lg border border-slate-300 bg-white px-3 py-2">
+          <option value="all">Tất cả bài được xem</option><option value="mine">Bài báo của tôi</option>
+        </select>
+      </div>
       <div className={`grid gap-3 sm:grid-cols-2 ${hideAwaitingAssignment ? 'xl:grid-cols-4' : 'xl:grid-cols-5'}`}>
         {visibleStatuses.map((paperStatus) => {
-          const count = papers.filter((paper) => paper.status === paperStatus).length;
+          const count = papers.filter((paper) => paper.status === paperStatus && (!conferenceFilter || paper.conference_id === conferenceFilter) && (scope === 'all' || (typeof paper.submitted_by === 'string' ? paper.submitted_by : paper.submitted_by?.id) === profile?.id || ownPaperIds.has(paper.id))).length;
           const number = PAPER_STATUS_NUMBERS[paperStatus];
           return (
             <button
@@ -229,6 +254,7 @@ export function PapersPage() {
 }
 
 function escapeCSVCell(value: string) {
-  const text = value.replace(/"/g, '""');
+  const safe = /^[\s]*[=+@-]/.test(value) ? "'" + value : value;
+  const text = safe.replace(/"/g, '""');
   return /[",\n\r]/.test(text) ? `"${text}"` : text;
 }

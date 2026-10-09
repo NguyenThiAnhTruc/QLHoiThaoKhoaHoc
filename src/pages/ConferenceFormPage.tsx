@@ -53,6 +53,10 @@ export function ConferenceFormPage({
   const [topics, setTopics] = useState<string[]>([]);
   const availableTopics = getConferenceTopics(field);
   const [eventFormat, setEventFormat] = useState<EventFormat>("offline");
+  const [autoCertificates,setAutoCertificates]=useState(false);
+  const [autoSurveys,setAutoSurveys]=useState(false);
+  const [reviewEnabled, setReviewEnabled] = useState(true);
+  const [requireAcceptedPaper, setRequireAcceptedPaper] = useState(false);
   const [isFeatured, setIsFeatured] = useState(false);
   const [isSchedulePublic, setIsSchedulePublic] = useState(true);
   const [contactName, setContactName] = useState("");
@@ -93,6 +97,9 @@ export function ConferenceFormPage({
       setField(data.field ?? "");
       setTopics(data.topics ?? []);
       setEventFormat(data.event_format ?? "offline");
+      setReviewEnabled(data.review_enabled !== false);
+      setAutoCertificates(Boolean(data.auto_certificates));setAutoSurveys(Boolean(data.auto_surveys));
+      setRequireAcceptedPaper(Boolean(data.require_accepted_paper));
       setIsFeatured(Boolean(data.is_featured));
       setIsSchedulePublic(data.is_schedule_public !== false);
       setContactName(data.contact_name ?? "");
@@ -161,7 +168,10 @@ export function ConferenceFormPage({
       max_participants: maxParticipants,
       cover_image_url: uploadedCoverUrl,
       submission_deadline: toNullableIso(submissionDeadline),
-      review_deadline: toNullableIso(reviewDeadline),
+      review_deadline: reviewEnabled ? toNullableIso(reviewDeadline) : null,
+      review_enabled: reviewEnabled,
+      auto_certificates:autoCertificates,auto_surveys:autoSurveys,
+      require_accepted_paper: requireAcceptedPaper,
       registration_deadline: toNullableIso(registrationDeadline),
       camera_ready_deadline: toNullableIso(cameraReadyDeadline),
       field,
@@ -402,6 +412,7 @@ export function ConferenceFormPage({
             onValueChange={setSubmissionDeadline}
            />
           <DateInput
+            disabled={!reviewEnabled}
             label="Deadline phản biện"
             type="datetime-local"
             value={reviewDeadline}
@@ -421,6 +432,13 @@ export function ConferenceFormPage({
            />
         </div>
 
+        <div className="space-y-3 rounded-lg border border-slate-200 p-4">
+          <label className="flex items-center gap-3"><input type="checkbox" checked={autoCertificates} onChange={(event)=>setAutoCertificates(event.target.checked)}/><span>Tự động cấp và gửi chứng nhận tham dự sau hội thảo</span></label>
+          <label className="flex items-center gap-3"><input type="checkbox" checked={autoSurveys} onChange={(event)=>setAutoSurveys(event.target.checked)}/><span>Tự động nhắc đánh giá sau từng phiên</span></label>
+          <label className="flex items-center gap-3"><input type="checkbox" checked={reviewEnabled} onChange={(event) => setReviewEnabled(event.target.checked)} /><span>Sử dụng phản biện bài báo</span></label>
+          <p className="text-xs text-slate-500">Khi tắt, ban tổ chức quyết định trực tiếp chấp nhận, từ chối hoặc yêu cầu sửa bài.</p>
+          <label className="flex items-center gap-3"><input type="checkbox" checked={requireAcceptedPaper} onChange={(event) => setRequireAcceptedPaper(event.target.checked)} /><span>Tác giả chỉ đăng ký tham dự sau khi có bài được chấp nhận</span></label>
+        </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3">
             <input

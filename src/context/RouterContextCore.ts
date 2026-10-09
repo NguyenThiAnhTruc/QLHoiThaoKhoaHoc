@@ -3,6 +3,11 @@ import { createContext } from "react";
 export type PageKey =
   | "dashboard"
   | "conferences"
+  | "topics"
+  | "funding"
+  | "speaker"
+  | "resources"
+  | "session-detail"
   | "conference-detail"
   | "conference-form"
   | "papers"

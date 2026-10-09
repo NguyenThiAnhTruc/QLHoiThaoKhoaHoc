@@ -1,3 +1,5 @@
+import { AgendaView } from "@/components/AgendaView";
+import { useRouter } from "@/context/useRouter";
 import { DateInput } from "@/components/ui/DateInput";
 import { useEffect, useRef, useState } from "react";
 import { toLocalDateTimeInput } from "@/lib/dateInput";
@@ -18,11 +20,16 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { Input, Textarea, Select } from "@/components/ui/Field";
 import { showToast } from "@/components/ui/toastStore";
-import type { Conference, Session, Paper, Profile } from "@/types";
+import type { Conference, ConferenceCommittee, Session, Paper, Profile } from "@/types";
 
 export function SessionsPage() {
   const { profile } = useAuth();
+  const { route, navigate } = useRouter();
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [filterConference, setFilterConference] = useState("");
+  const [personalOnly, setPersonalOnly] = useState(route.params.mine === "true");
+  const [ownPaperIds, setOwnPaperIds] = useState<Set<string>>(new Set());
+  const [parentSessionId, setParentSessionId] = useState("");
   const [conferences, setConferences] = useState<Conference[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -35,6 +42,14 @@ export function SessionsPage() {
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
   const [room, setRoom] = useState("");
+  const [tags, setTags] = useState("");
+  const [resourceDeadline,setResourceDeadline]=useState("");
+  const [difficulty,setDifficulty] = useState<"general"|"beginner"|"advanced">("general");
+  const [committeeId, setCommitteeId] = useState("");
+  const [committees, setCommittees] = useState<ConferenceCommittee[]>([]);
+  const [committeeName, setCommitteeName] = useState("");
+  const [committeeRoom, setCommitteeRoom] = useState("");
+  const [committeeSaving, setCommitteeSaving] = useState(false);
   const [speakerId, setSpeakerId] = useState("");
   const [paperId, setPaperId] = useState("");
   const [papers, setPapers] = useState<Paper[]>([]);
@@ -49,7 +64,16 @@ export function SessionsPage() {
     let cancelled = false;
     setManagedIds(new Set());
     load();
+    setOwnPaperIds(new Set());
     (async () => {
+      if (profile?.id) {
+        const [submitted, coauthored] = await Promise.all([
+          supabase.from("papers").select("id").eq("submitted_by", profile.id),
+          supabase.from("paper_authors").select("paper_id").eq("user_id", profile.id),
+        ]);
+        if (submitted.error || coauthored.error) showToast("error", "Không thể tải lịch cá nhân");
+        if (!cancelled) setOwnPaperIds(new Set([...(submitted.data ?? []).map((paper) => paper.id), ...(coauthored.data ?? []).map((author) => author.paper_id)]));
+      }
       const { data: confs } = await supabase
         .from("conferences")
         .select("*")
@@ -71,6 +95,11 @@ export function SessionsPage() {
         .in("role", ["admin", "organizer", "author", "reviewer"])
         .order("full_name");
       if (profs && !cancelled) setSpeakers(profs as unknown as Profile[]);
+      const { data: committeeRows } = await supabase
+        .from("conference_committees")
+        .select("*")
+        .order("name");
+      if (committeeRows && !cancelled) setCommittees(committeeRows as ConferenceCommittee[]);
     })();
     return () => { cancelled = true; };
   }, [profile?.id, profile?.role]);
@@ -79,7 +108,7 @@ export function SessionsPage() {
     setLoading(true);
     const { data, error } = await supabase
       .from("sessions")
-      .select("*, conference:conferences(*), speaker:profile_directory(*)")
+      .select("*, conference:conferences(*), speaker:profile_directory(*), committee:conference_committees(*)")
       .order("start_time", { ascending: true });
     if (error) {
       showToast("error", "Không thể tải lịch trình");
@@ -99,6 +128,7 @@ export function SessionsPage() {
     const { data, error } = await supabase
       .rpc('read_papers')
       .eq("conference_id", confId)
+      .eq("status", "accepted")
       .select("*")
       .order("title");
     if (request !== paperRequest.current) return;
@@ -115,7 +145,9 @@ export function SessionsPage() {
     setDescription("");
     setStartTime("");
     setEndTime("");
-    setRoom("");
+    setRoom(""); setTags(""); setDifficulty("general"); setResourceDeadline("");
+    setCommitteeId("");
+    setParentSessionId("");
     setSpeakerId("");
     setPaperId("");
     setPapers([]);
@@ -130,7 +162,9 @@ export function SessionsPage() {
     setDescription(session.description ?? "");
     setStartTime(toLocalDateTimeInput(session.start_time));
     setEndTime(toLocalDateTimeInput(session.end_time));
-    setRoom(session.room ?? "");
+    setRoom(session.room ?? ""); setTags((session.tags ?? []).join(", ")); setDifficulty(session.difficulty ?? "general"); setResourceDeadline(session.resource_deadline ? toLocalDateTimeInput(session.resource_deadline) : "");
+    setCommitteeId(session.committee_id ?? "");
+    setParentSessionId(session.parent_session_id ?? "");
     setSpeakerId(session.speaker_id ?? "");
     setPaperId(session.paper_id ?? "");
     loadPapers(session.conference_id);
@@ -160,6 +194,10 @@ export function SessionsPage() {
       start_time: new Date(startTime).toISOString(),
       end_time: new Date(endTime).toISOString(),
       room: room.trim(),
+      tags: [...new Set(tags.split(",").map((tag)=>tag.trim()).filter(Boolean))], difficulty,
+      resource_deadline: resourceDeadline ? new Date(resourceDeadline).toISOString() : null,
+      committee_id: committeeId || null,
+      parent_session_id: parentSessionId || null,
       speaker_id: speakerId || null,
       paper_id: paperId || null,
     };
@@ -193,6 +231,25 @@ export function SessionsPage() {
     }
   }
 
+  async function handleCreateCommittee(event: React.FormEvent) {
+    event.preventDefault();
+    if (!conferenceId || !committeeName.trim() || !managedIds.has(conferenceId) || committeeSaving) return;
+    setCommitteeSaving(true);
+    const { data, error } = await supabase.from("conference_committees").insert({
+      conference_id: conferenceId,
+      name: committeeName.trim(),
+      room: committeeRoom.trim(),
+    }).select().single();
+    if (error) showToast("error", "Tạo tiểu ban thất bại: " + error.message);
+    else {
+      setCommittees((current) => [...current, data as ConferenceCommittee].sort((left, right) => left.name.localeCompare(right.name)));
+      setCommitteeName("");
+      setCommitteeRoom("");
+      showToast("success", "Đã tạo tiểu ban");
+    }
+    setCommitteeSaving(false);
+  }
+
   async function handleDelete(id: string) {
     const target = sessions.find((session) => session.id === id);
     if (!target || !managedIds.has(target.conference_id)) return;
@@ -207,9 +264,11 @@ export function SessionsPage() {
   }
 
   // group sessions by conference
-  const grouped = sessions.reduce(
+  const personalIds = new Set(sessions.filter((session) => session.speaker_id === profile?.id || (session.paper_id && ownPaperIds.has(session.paper_id))).flatMap((session) => [session.id, ...(session.parent_session_id ? [session.parent_session_id] : [])]));
+  const visibleSessions = sessions.filter((session) => (!filterConference || session.conference_id === filterConference) && (!personalOnly || personalIds.has(session.id)));
+  const grouped = visibleSessions.reduce(
     (acc, s) => {
-      const key = s.conference?.title ?? "Không rõ";
+      const key = s.conference_id;
       if (!acc[key]) acc[key] = [];
       acc[key].push(s);
       return acc;
@@ -233,31 +292,56 @@ export function SessionsPage() {
         )}
       </div>
 
+      <Card className="flex flex-wrap items-center gap-4 p-4">
+        <Select label="Hội thảo" value={filterConference} onChange={(event) => setFilterConference(event.target.value)}>
+          <option value="">Tất cả hội thảo</option>
+          {[...new Map(sessions.map((session) => [session.conference_id, session.conference?.title ?? session.conference_id])).entries()].map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+        </Select>
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={personalOnly} onChange={(event) => setPersonalOnly(event.target.checked)} />Lịch của tôi (diễn giả / tác giả)</label>
+      </Card>
+      {canEdit && <Card className="p-4">
+        <h2 className="font-semibold text-slate-900">Tiểu ban và phòng song song</h2>
+        <p className="mt-1 text-sm text-slate-500">Tạo nhiều tiểu ban cho cùng hội thảo; mỗi tiểu ban có thể diễn ra ở một phòng riêng.</p>
+        <form onSubmit={handleCreateCommittee} className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+          <Select aria-label="Hội thảo của tiểu ban" value={conferenceId} onChange={(event) => setConferenceId(event.target.value)}>
+            <option value="">Chọn hội thảo</option>
+            {conferences.map((conference) => <option key={conference.id} value={conference.id}>{conference.title}</option>)}
+          </Select>
+          <Input aria-label="Tên tiểu ban" placeholder="Tên tiểu ban" value={committeeName} onChange={(event) => setCommitteeName(event.target.value)} />
+          <div className="flex gap-2"><Input aria-label="Phòng tiểu ban" placeholder="Phòng" value={committeeRoom} onChange={(event) => setCommitteeRoom(event.target.value)} /><Button type="submit" disabled={committeeSaving}><Plus className="h-4 w-4" /> Thêm</Button></div>
+        </form>
+        {committees.filter((committee) => committee.conference_id === conferenceId).length > 0 && <div className="mt-4 flex flex-wrap gap-2">{committees.filter((committee) => committee.conference_id === conferenceId).map((committee) => <span key={committee.id} className="rounded-lg bg-teal-50 px-3 py-2 text-sm text-teal-800">{committee.name}{committee.room ? ` · ${committee.room}` : ""}</span>)}</div>}
+      </Card>}
+
       {loading ? (
         <div className="flex justify-center py-20">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-300 border-t-teal-600" />
         </div>
-      ) : sessions.length === 0 ? (
+      ) : visibleSessions.length === 0 ? (
         <Card className="p-12 text-center">
           <ScheduleIcon className="mx-auto h-12 w-12 text-slate-300" />
           <p className="mt-4 text-slate-500">Chưa có phiên nào được tạo</p>
         </Card>
       ) : (
         <div className="space-y-6">
-          {Object.entries(grouped).map(([confTitle, sess]) => (
-            <div key={confTitle}>
+          <AgendaView sessions={visibleSessions} />
+          {canEdit && Object.entries(grouped).map(([confId, sess]) => (
+            <div key={confId}>
               <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-700">
                 <Calendar className="h-4 w-4 text-teal-600" />
-                {confTitle}
+                {sess[0]?.conference?.title ?? "Hội thảo"}
               </h2>
               <div className="space-y-3">
                 {sess.map((session) => (
-                  <Card key={session.id} className="p-4">
+                  <Card key={session.id} className={session.parent_session_id ? "ml-4 border-l-4 border-l-teal-400 p-4" : "border-l-4 border-l-teal-700 bg-teal-50/40 p-4"}>
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1">
                         <h3 className="font-medium text-slate-900">
                           {session.title}
                         </h3>
+                        <button type="button" className="mt-1 text-sm text-teal-700 hover:underline" onClick={()=>navigate("session-detail",{id:session.id})}>Chi tiết · Tài liệu · Điểm danh</button>
+                        {session.parent_session_id && <p className="mt-1 text-xs text-teal-700">Thuộc phiên: {sessions.find((parent) => parent.id === session.parent_session_id)?.title}</p>}
+                        {session.committee && <p className="mt-1 text-sm font-medium text-teal-700">Tiểu ban: {session.committee.name}</p>}
                         {session.description && (
                           <p className="mt-1 text-sm text-slate-500">
                             {session.description}
@@ -328,6 +412,8 @@ export function SessionsPage() {
             onChange={(e) => {
               setConferenceId(e.target.value);
               setPaperId("");
+              setCommitteeId("");
+              setParentSessionId("");
               loadPapers(e.target.value);
             }}
           >
@@ -368,6 +454,22 @@ export function SessionsPage() {
             value={room}
             onChange={(e) => setRoom(e.target.value)}
           />
+          <DateInput label="Hạn tải slide (mặc định: giờ bắt đầu phiên)" type="datetime-local" value={resourceDeadline} onValueChange={setResourceDeadline} />
+          <Input label="Chủ đề / tags (cách nhau bởi dấu phẩy)" value={tags} onChange={(event)=>setTags(event.target.value)} />
+          <Select label="Mức độ workshop" value={difficulty} onChange={(event)=>setDifficulty(event.target.value as typeof difficulty)}><option value="general">Chung</option><option value="beginner">Cơ bản</option><option value="advanced">Nâng cao</option></Select>
+          <Select label="Phiên chung (cho báo cáo song song)" value={parentSessionId} onChange={(event) => setParentSessionId(event.target.value)}>
+            <option value="">Phiên độc lập / phiên chung</option>
+            {sessions.filter((session) => session.conference_id === conferenceId && !session.parent_session_id && session.id !== editingSession?.id).map((session) => <option key={session.id} value={session.id}>{session.title}</option>)}
+          </Select>
+          <Select label="Tiểu ban" value={committeeId} onChange={(event) => {
+            const nextId = event.target.value;
+            setCommitteeId(nextId);
+            const committee = committees.find((item) => item.id === nextId);
+            if (committee?.room) setRoom(committee.room);
+          }}>
+            <option value="">Không thuộc tiểu ban</option>
+            {committees.filter((committee) => committee.conference_id === conferenceId).map((committee) => <option key={committee.id} value={committee.id}>{committee.name}{committee.room ? ` · ${committee.room}` : ""}</option>)}
+          </Select>
           <Select
             label="Diễn giả"
             value={speakerId}

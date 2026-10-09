@@ -1,3 +1,4 @@
+import { DashboardTasks } from "@/components/DashboardTasks";
 import { useEffect, useState } from "react";
 import {
   CalendarDays,
@@ -95,7 +96,7 @@ export function RoleDashboard() {
                 .eq("user_id", profile.id),
               supabase
                 .rpc("read_papers")
-                .select("*")
+                .select("*, conference:conferences(*)")
                 .order("created_at", { ascending: false }),
               supabase
                 .from("participants")
@@ -125,9 +126,7 @@ export function RoleDashboard() {
           if (!cancelled) {
             setPapers(own);
             setConferences(
-              joined.flatMap((item) =>
-                item.conference ? [item.conference] : [],
-              ),
+              [...new Map([...joined.flatMap((item) => item.conference ? [item.conference] : []), ...own.flatMap((paper) => paper.conference ? [paper.conference] : [])].map((conference) => [conference.id,conference])).values()],
             );
             setPendingReviews(reviewResult.count ?? 0);
           }
@@ -242,6 +241,7 @@ export function RoleDashboard() {
         </Card>
       ) : (
         <>
+          <DashboardTasks papers={papers} conferences={conferences} organizer={organizer} />
           <div className="grid gap-4 sm:grid-cols-3">
             {stats.map(({ label, value, icon: Icon }) => (
               <Card key={label} className="p-5">

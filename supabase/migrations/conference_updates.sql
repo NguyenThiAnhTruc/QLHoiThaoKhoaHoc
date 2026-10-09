@@ -1167,3 +1167,183 @@ GRANT EXECUTE ON FUNCTION public.conference_paper_catalog(uuid) TO authenticated
 NOTIFY pgrst, 'reload schema';
 COMMIT;
 -- END SECTION 20260927_conference_paper_catalog
+
+-- BEGIN SECTION 20261008_conference_topics
+BEGIN;
+CREATE TABLE IF NOT EXISTS public.conference_topics (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  conference_id uuid NOT NULL REFERENCES public.conferences(id) ON DELETE CASCADE,
+  name text NOT NULL CHECK (btrim(name) <> ''),
+  description text NOT NULL DEFAULT '',
+  created_by uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (conference_id, name)
+);
+CREATE TABLE IF NOT EXISTS public.paper_topics (
+  paper_id uuid NOT NULL REFERENCES public.papers(id) ON DELETE CASCADE,
+  topic_id uuid NOT NULL REFERENCES public.conference_topics(id) ON DELETE RESTRICT,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (paper_id, topic_id)
+);
+INSERT INTO public.conference_topics(conference_id, name)
+SELECT c.id, btrim(legacy.topic)
+FROM public.conferences c
+CROSS JOIN LATERAL unnest(coalesce(c.topics, ARRAY[]::text[])) AS legacy(topic)
+WHERE btrim(legacy.topic) <> ''
+ON CONFLICT (conference_id, name) DO NOTHING;
+ALTER TABLE public.conference_topics ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.paper_topics ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS conference_topics_read ON public.conference_topics;
+CREATE POLICY conference_topics_read ON public.conference_topics FOR SELECT TO authenticated USING (
+  EXISTS (SELECT 1 FROM public.conferences c WHERE c.id = conference_id
+    AND (c.status <> 'draft' OR public.is_conference_organizer(c.id)))
+);
+DROP POLICY IF EXISTS conference_topics_manage ON public.conference_topics;
+CREATE POLICY conference_topics_manage ON public.conference_topics FOR ALL TO authenticated
+USING (public.is_conference_organizer(conference_id))
+WITH CHECK (public.is_conference_organizer(conference_id));
+DROP POLICY IF EXISTS paper_topics_read ON public.paper_topics;
+CREATE POLICY paper_topics_read ON public.paper_topics FOR SELECT TO authenticated USING (
+  EXISTS (SELECT 1 FROM public.papers p WHERE p.id = paper_id AND public.can_read_paper(p.id))
+  OR EXISTS (SELECT 1 FROM public.conference_topics t WHERE t.id = topic_id AND public.is_conference_organizer(t.conference_id))
+);
+DROP POLICY IF EXISTS paper_topics_manage ON public.paper_topics;
+CREATE POLICY paper_topics_manage ON public.paper_topics FOR ALL TO authenticated
+USING (EXISTS (SELECT 1 FROM public.papers p WHERE p.id = paper_id
+  AND (p.submitted_by = auth.uid() OR public.is_conference_organizer(p.conference_id))))
+WITH CHECK (EXISTS (SELECT 1 FROM public.papers p
+  JOIN public.conference_topics t ON t.conference_id = p.conference_id
+  WHERE p.id = paper_id AND t.id = topic_id
+    AND (p.submitted_by = auth.uid() OR public.is_conference_organizer(p.conference_id))));
+CREATE INDEX IF NOT EXISTS idx_conference_topics_conference ON public.conference_topics(conference_id);
+CREATE INDEX IF NOT EXISTS idx_paper_topics_topic ON public.paper_topics(topic_id);
+NOTIFY pgrst, 'reload schema';
+COMMIT;
+-- END SECTION 20261008_conference_topics
+
+-- BEGIN SECTION 20261008_session_committees
+BEGIN;
+CREATE TABLE IF NOT EXISTS public.conference_committees (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  conference_id uuid NOT NULL REFERENCES public.conferences(id) ON DELETE CASCADE,
+  name text NOT NULL CHECK (btrim(name) <> ''),
+  room text NOT NULL DEFAULT '',
+  description text NOT NULL DEFAULT '',
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (conference_id, name)
+);
+ALTER TABLE public.sessions ADD COLUMN IF NOT EXISTS committee_id uuid REFERENCES public.conference_committees(id) ON DELETE SET NULL;
+ALTER TABLE public.conference_committees ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS conference_committees_read ON public.conference_committees;
+CREATE POLICY conference_committees_read ON public.conference_committees FOR SELECT TO authenticated USING (
+  EXISTS (SELECT 1 FROM public.conferences c WHERE c.id = conference_id
+    AND (c.status <> 'draft' OR public.is_conference_organizer(c.id)))
+);
+DROP POLICY IF EXISTS conference_committees_manage ON public.conference_committees;
+CREATE POLICY conference_committees_manage ON public.conference_committees FOR ALL TO authenticated
+USING (public.is_conference_organizer(conference_id))
+WITH CHECK (public.is_conference_organizer(conference_id));
+CREATE INDEX IF NOT EXISTS idx_conference_committees_conference ON public.conference_committees(conference_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_committee ON public.sessions(committee_id);
+NOTIFY pgrst, 'reload schema';
+COMMIT;
+-- END SECTION 20261008_session_committees
+
+-- BEGIN SECTION 20261008_paper_author_participation
+BEGIN;
+ALTER TABLE public.paper_authors
+  ADD COLUMN IF NOT EXISTS participation_status text NOT NULL DEFAULT 'participating';
+ALTER TABLE public.paper_authors
+  DROP CONSTRAINT IF EXISTS paper_authors_participation_status_check;
+ALTER TABLE public.paper_authors
+  ADD CONSTRAINT paper_authors_participation_status_check
+  CHECK (participation_status IN ('participating', 'not_participating'));
+DROP POLICY IF EXISTS paper_authors_update_paper_owner ON public.paper_authors;
+CREATE POLICY paper_authors_update_paper_owner ON public.paper_authors
+FOR UPDATE TO authenticated USING (EXISTS (
+  SELECT 1 FROM public.papers p WHERE p.id = paper_id AND p.submitted_by = auth.uid()
+)) WITH CHECK (EXISTS (
+  SELECT 1 FROM public.papers p WHERE p.id = paper_id AND p.submitted_by = auth.uid()
+));
+NOTIFY pgrst, 'reload schema';
+COMMIT;
+-- END SECTION 20261008_paper_author_participation
+
+-- BEGIN SECTION 20261008_conference_funding
+BEGIN;
+CREATE TABLE IF NOT EXISTS public.conference_funds (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  conference_id uuid NOT NULL REFERENCES public.conferences(id) ON DELETE CASCADE,
+  name text NOT NULL CHECK (btrim(name) <> ''),
+  amount numeric(14,2) NOT NULL CHECK (amount >= 0),
+  description text NOT NULL DEFAULT '',
+  created_by uuid NOT NULL REFERENCES public.profiles(id) ON DELETE RESTRICT,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS public.fee_payments (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  fund_id uuid NOT NULL REFERENCES public.conference_funds(id) ON DELETE CASCADE,
+  conference_id uuid NOT NULL REFERENCES public.conferences(id) ON DELETE CASCADE,
+  payer_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  amount numeric(14,2) NOT NULL CHECK (amount > 0),
+  purpose text NOT NULL DEFAULT '',
+  proof_url text NOT NULL DEFAULT '',
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'rejected')),
+  reviewed_by uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
+  reviewed_at timestamptz,
+  review_notes text NOT NULL DEFAULT '',
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.conference_funds ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.fee_payments ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS conference_funds_read ON public.conference_funds;
+CREATE POLICY conference_funds_read ON public.conference_funds FOR SELECT TO authenticated USING (
+  public.is_conference_organizer(conference_id) OR EXISTS (
+    SELECT 1 FROM public.conferences c WHERE c.id = conference_id AND c.status <> 'draft'
+  )
+);
+DROP POLICY IF EXISTS conference_funds_manage ON public.conference_funds;
+CREATE POLICY conference_funds_manage ON public.conference_funds FOR ALL TO authenticated
+USING (public.is_conference_organizer(conference_id))
+WITH CHECK (public.is_conference_organizer(conference_id) AND created_by = auth.uid());
+DROP POLICY IF EXISTS fee_payments_read ON public.fee_payments;
+CREATE POLICY fee_payments_read ON public.fee_payments FOR SELECT TO authenticated USING (
+  payer_id = auth.uid() OR public.is_conference_organizer(conference_id)
+);
+DROP POLICY IF EXISTS fee_payments_insert ON public.fee_payments;
+CREATE POLICY fee_payments_insert ON public.fee_payments FOR INSERT TO authenticated WITH CHECK (
+  payer_id = auth.uid() AND status = 'pending'
+  AND EXISTS (SELECT 1 FROM public.conference_funds f WHERE f.id = fund_id AND f.conference_id = conference_id)
+);
+DROP POLICY IF EXISTS fee_payments_review ON public.fee_payments;
+CREATE POLICY fee_payments_review ON public.fee_payments FOR UPDATE TO authenticated
+USING (public.is_conference_organizer(conference_id))
+WITH CHECK (public.is_conference_organizer(conference_id));
+CREATE INDEX IF NOT EXISTS idx_conference_funds_conference ON public.conference_funds(conference_id);
+CREATE INDEX IF NOT EXISTS idx_fee_payments_conference ON public.fee_payments(conference_id);
+NOTIFY pgrst, 'reload schema';
+COMMIT;
+-- END SECTION 20261008_conference_funding
+
+-- BEGIN SECTION 20261008_certificate_signatures
+BEGIN;
+ALTER TABLE public.certificates ADD COLUMN IF NOT EXISTS signature_hash text;
+CREATE OR REPLACE FUNCTION public.set_certificate_signature_hash()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  NEW.signature_hash := md5(concat_ws('|', NEW.certificate_number, NEW.conference_id::text,
+    NEW.user_id::text, NEW.certificate_type, coalesce(NEW.paper_id::text, '')));
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS set_certificate_signature_hash_trigger ON public.certificates;
+CREATE TRIGGER set_certificate_signature_hash_trigger
+BEFORE INSERT OR UPDATE OF certificate_number, conference_id, user_id, certificate_type, paper_id
+ON public.certificates FOR EACH ROW EXECUTE FUNCTION public.set_certificate_signature_hash();
+UPDATE public.certificates SET signature_hash = md5(concat_ws('|', certificate_number,
+  conference_id::text, user_id::text, certificate_type, coalesce(paper_id::text, '')))
+WHERE signature_hash IS NULL;
+REVOKE ALL ON FUNCTION public.set_certificate_signature_hash() FROM PUBLIC, anon, authenticated;
+NOTIFY pgrst, 'reload schema';
+COMMIT;
+-- END SECTION 20261008_certificate_signatures

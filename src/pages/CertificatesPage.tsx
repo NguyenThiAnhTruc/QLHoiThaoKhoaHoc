@@ -11,7 +11,8 @@ import { Select } from "@/components/ui/Field";
 import { showToast } from "@/components/ui/toastStore";
 import { CERTIFICATE_TYPE_LABELS, ROLE_LABELS } from "@/lib/constants";
 import { escapeCertificateText } from '@/lib/certificatePrint';
-import type { Certificate, UserRole } from "@/types";
+import { PostSeminarStatus } from '@/components/PostSeminarStatus';
+import type { Certificate, Paper, UserRole } from "@/types";
 
 interface EligibleRecipient {
   user_id: string;
@@ -24,9 +25,13 @@ export function CertificatesPage() {
   const [certificates, setCertificates] = useState<Certificate[]>([]);
   const { conferences, canManage } = useConferenceAccess();
   const [loading, setLoading] = useState(true);
+  const [conferenceFilter, setConferenceFilter] = useState("");
+  const visibleCertificates = certificates.filter((cert) => !conferenceFilter || cert.conference_id === conferenceFilter);
   const [issueModalOpen, setIssueModalOpen] = useState(false);
   const [selectedConf, setSelectedConf] = useState("");
   const [participants, setParticipants] = useState<EligibleRecipient[]>([]);
+  const [papers, setPapers] = useState<Paper[]>([]);
+  const [selectedPaperId, setSelectedPaperId] = useState("");
   const [loadingRecipients, setLoadingRecipients] = useState(false);
   const [selectedUser, setSelectedUser] = useState("");
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
@@ -42,7 +47,7 @@ export function CertificatesPage() {
     setLoading(true);
     const query = supabase
       .from("certificates")
-      .select("*, user:profile_directory(*), conference:conferences(*)")
+      .select("*, user:profile_directory(*), conference:conferences(*), paper:papers(*)")
       .order("issued_at", { ascending: false });
 
     const { data, error } = await query;
@@ -62,18 +67,25 @@ export function CertificatesPage() {
     let cancelled = false;
     setSelectedUser(""); setSelectedUsers([]);
     setParticipants([]);
+    setPapers([]);
+
     if (!selectedConf || !issueModalOpen) { setLoadingRecipients(false); return; }
     setLoadingRecipients(true);
-    void supabase.rpc('certificate_eligible_recipients', {
-      conf_id: selectedConf, cert_type: certType,
-    }).then(({ data, error }) => {
+    void Promise.all([
+      certType === 'presentation'
+        ? (selectedPaperId ? supabase.rpc('paper_certificate_recipients', { conf_id: selectedConf, target_paper_id: selectedPaperId }) : Promise.resolve({ data: [], error: null }))
+        : supabase.rpc('certificate_eligible_recipients', { conf_id: selectedConf, cert_type: certType }),
+      supabase.from("papers").select("*").eq("conference_id", selectedConf).eq("status", "accepted").order("title"),
+    ]).then(([recipientResult, paperResult]) => {
       if (cancelled) return;
-      if (error) showToast('error', 'Không thể tải danh sách người đủ điều kiện nhận chứng nhận');
-      else setParticipants((data ?? []) as EligibleRecipient[]);
+      if (recipientResult.error) showToast('error', 'Không thể tải danh sách người đủ điều kiện nhận chứng nhận');
+      else setParticipants((recipientResult.data ?? []) as EligibleRecipient[]);
+      if (paperResult.error) showToast("error", "Không thể tải bài báo được chấp nhận");
+      setPapers((paperResult.data ?? []) as Paper[]);
       setLoadingRecipients(false);
     });
     return () => { cancelled = true; };
-  }, [selectedConf, certType, issueModalOpen]);
+  }, [selectedConf, certType, issueModalOpen, selectedPaperId]);
 
   async function handleIssue() {
     if (issuing) return;
@@ -82,15 +94,15 @@ export function CertificatesPage() {
       return;
     }
     const ids = selectedUsers.length ? selectedUsers : (selectedUser ? [selectedUser] : []);
-    if (loadingRecipients || !selectedConf || !ids.length) {
+    if (loadingRecipients || !selectedConf || !ids.length || (certType === "presentation" && !selectedPaperId)) {
       showToast("error", "Vui lòng chọn đầy đủ thông tin");
       return;
     }
     setIssuing(true);
     try {
-    const { data: issued, error } = await supabase.rpc("issue_certificates_bulk", {
-      conf_id: selectedConf, cert_type: certType, recipient_ids: ids,
-    });
+    const { data: issued, error } = certType === "presentation"
+      ? await supabase.rpc("issue_paper_certificates", { conf_id: selectedConf, target_paper_id: selectedPaperId, recipient_ids: ids })
+      : await supabase.rpc("issue_certificates_bulk", { conf_id: selectedConf, cert_type: certType, recipient_ids: ids });
     if (error) {
       if (error.code === "23505") {
         showToast("error", "Chứng nhận này đã được cấp");
@@ -109,7 +121,12 @@ export function CertificatesPage() {
     }
   }
 
-  function downloadCertificate(cert: Certificate) {
+  async function downloadCertificate(cert: Certificate) {
+    if (cert.pdf_path) {
+      const {data,error}=await supabase.storage.from("certificate-pdfs").createSignedUrl(cert.pdf_path,60,{download:true});
+      if(error || !data){showToast("error","Không thể tải PDF chứng nhận");return;}
+      const link=document.createElement("a");link.href=data.signedUrl;link.target="_blank";link.rel="noopener noreferrer";link.click();return;
+    }
     const certWindow = window.open("", "_blank");
     if (!certWindow) return;
     const conf = cert.conference;
@@ -149,8 +166,10 @@ export function CertificatesPage() {
           <p>Đơn vị: ${escapeCertificateText(user?.organization)}</p>
           <p>Đã ${CERTIFICATE_TYPE_LABELS[cert.certificate_type] === "Tham dự" ? "tham dự" : "trình bày báo cáo tại"} hội thảo:</p>
           <div class="conf-title">${escapeCertificateText(conf?.title)}</div>
+          ${cert.paper ? `<p>Đề tài: ${escapeCertificateText(cert.paper.title)}</p>` : ""}
           <p>Thời gian: ${conf ? new Date(conf.start_date).toLocaleDateString("vi-VN") : ""} - ${conf ? new Date(conf.end_date).toLocaleDateString("vi-VN") : ""}</p>
           <p>Địa điểm: ${escapeCertificateText(conf?.location)}</p>
+          ${(cert.attendance_minutes ?? 0)>0 ? `<p>Thời lượng tham dự đã xác nhận: ${cert.attendance_minutes} phút</p>` : ""}
           <div class="date">Ngày cấp: ${new Date(cert.issued_at).toLocaleDateString("vi-VN")}</div>
           <div class="number">Số: ${escapeCertificateText(cert.certificate_number)}</div>
         </div>
@@ -163,6 +182,7 @@ export function CertificatesPage() {
 
   return (
     <div className="space-y-6">
+      {conferenceFilter && canManage(conferenceFilter) && <PostSeminarStatus key={conferenceFilter} conferenceId={conferenceFilter} />}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">{canIssue ? 'Quản lý chứng nhận' : 'Chứng nhận của tôi'}</h1>
@@ -185,18 +205,22 @@ export function CertificatesPage() {
         )}
       </div>
 
+      <div className="flex flex-wrap items-center gap-3">
+        <Select label="Lọc chứng nhận theo hội thảo" value={conferenceFilter} onChange={(event) => setConferenceFilter(event.target.value)}><option value="">Tất cả hội thảo</option>{[...new Map(certificates.map((cert) => [cert.conference_id, cert.conference?.title ?? cert.conference_id])).entries()].map(([id, title]) => <option key={id} value={id}>{title}</option>)}</Select>
+        <a href="/certificate-template.html" download="mau-chung-nhan.html" className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium">Tải mẫu chứng nhận để điền</a>
+      </div>
       {loading ? (
         <div className="flex justify-center py-20">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-300 border-t-teal-600" />
         </div>
-      ) : certificates.length === 0 ? (
+      ) : visibleCertificates.length === 0 ? (
         <Card className="p-12 text-center">
           <Award className="mx-auto h-12 w-12 text-slate-300" />
           <p className="mt-4 text-slate-500">Chưa có chứng nhận nào</p>
         </Card>
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {certificates.map((cert) => (
+          {visibleCertificates.map((cert) => (
             <Card key={cert.id} className="overflow-hidden">
               <div className="bg-gradient-to-br from-teal-600 to-blue-700 p-5">
                 <Award className="h-8 w-8 text-white/80" />
@@ -231,8 +255,8 @@ export function CertificatesPage() {
                     <Download className="h-3.5 w-3.5" /> In
                   </Button>
                 </div>
-                <p className="text-xs text-slate-400 font-mono pt-1">
-                  Số: {cert.certificate_number}
+                  <p className="text-xs text-slate-400 font-mono pt-1">
+                    Số: {cert.certificate_number}{cert.signature_hash ? ` · Mã đối chiếu: ${cert.signature_hash.slice(0, 16)}` : ""}
                 </p>
               </div>
             </Card>
@@ -250,7 +274,7 @@ export function CertificatesPage() {
           <Select
             label="Hội thảo"
             value={selectedConf}
-            onChange={(e) => { setSelectedUser(''); setSelectedUsers([]); setParticipants([]); setSelectedConf(e.target.value); }}
+            onChange={(e) => { setSelectedUser(''); setSelectedUsers([]); setParticipants([]); setSelectedPaperId(''); setSelectedConf(e.target.value); }}
             disabled={issuing}
           >
             <option value="">Chọn hội thảo</option>
@@ -260,6 +284,10 @@ export function CertificatesPage() {
               </option>
             ))}
           </Select>
+          {certType === "presentation" && <Select label="Bài báo được chứng nhận" value={selectedPaperId} onChange={(event) => { setSelectedUser(""); setSelectedUsers([]); setParticipants([]); setSelectedPaperId(event.target.value); }} disabled={!selectedConf || issuing}>
+            <option value="">Chọn bài báo accepted</option>
+            {papers.map((paper) => <option key={paper.id} value={paper.id}>{paper.title}</option>)}
+          </Select>}
           <Select
             label="Người nhận"
             value={selectedUser}
@@ -284,14 +312,14 @@ export function CertificatesPage() {
           </Select>
           {participants.length > 0 && <div className="flex flex-wrap items-center gap-2"><Button type="button" variant="outline" onClick={() => setSelectedUsers(participants.map((p) => p.user_id))}>Chọn tất cả đủ điều kiện</Button><Button type="button" variant="outline" onClick={() => setSelectedUsers([])}>Bỏ chọn</Button><span className="text-sm text-slate-500">Đã chọn {selectedUsers.length} người</span></div>}
           <p className="text-sm text-slate-500">
-            {certType === 'attendance' ? 'Chỉ người đã điểm danh mới đủ điều kiện nhận chứng nhận tham dự.' : 'Cần đã điểm danh và là diễn giả của phiên đã kết thúc, gắn với bài báo được chấp nhận.'}
+            {certType === 'attendance' ? 'Chỉ người đã điểm danh mới đủ điều kiện nhận chứng nhận tham dự.' : 'Cần đã điểm danh, thuộc nhóm tác giả của bài được chấp nhận và có phiên báo cáo đã kết thúc.'}
           </p>
           {selectedConf && <p className="text-sm text-slate-500">{loadingRecipients ? 'Đang tải người đủ điều kiện...' : participants.length === 0 ? 'Không có người đủ điều kiện chưa được cấp loại chứng nhận này.' : `${participants.length} người đủ điều kiện`}</p>}
           <div className="flex justify-end gap-3">
             <Button variant="outline" disabled={issuing} onClick={() => setIssueModalOpen(false)}>
               Hủy
             </Button>
-            <Button onClick={handleIssue} disabled={issuing || loadingRecipients || (!selectedUser && !selectedUsers.length)}>
+            <Button onClick={handleIssue} disabled={issuing || loadingRecipients || (certType === "presentation" && !selectedPaperId) || (!selectedUser && !selectedUsers.length)}>
               {issuing ? "Đang cấp..." : "Cấp"}
             </Button>
           </div>
