@@ -91,7 +91,7 @@ export function buildReport(data: ReportData, filter: ReportFilter, now = new Da
     cancelled: data.events === null ? null : data.events.filter(e => e.event_type === 'registration_cancelled' && e.conference_id && ids.has(e.conference_id) && inRange(e.occurred_at)).length,
     trackingSince: data.events?.find(e => e.event_type === 'tracking_started')?.occurred_at ?? null,
     newUsers: users.length,
-    roles: countBy(data.profiles.map(u => u.role), ['admin', 'organizer', 'author', 'reviewer', 'participant']),
+    roles: countBy(data.profiles.map(u => u.role), ['admin', 'organizer', 'author', 'reviewer']),
     attendanceCertificates: certificates.filter(c => c.certificate_type === 'attendance').length,
     presentationCertificates: certificates.filter(c => c.certificate_type === 'presentation').length,
     missingCertificates, months, top,

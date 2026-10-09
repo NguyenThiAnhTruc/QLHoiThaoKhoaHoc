@@ -19,9 +19,9 @@ END $$;
 
 INSERT INTO auth.users(id, raw_user_meta_data)
 SELECT ('90000000-0000-0000-0000-00000000000' || n)::uuid,
-  jsonb_build_object('full_name', 'Role test ' || n, 'role', CASE WHEN n IN (3,4) THEN 'author' ELSE 'participant' END)
+  jsonb_build_object('full_name', 'Role test ' || n, 'role', 'author')
 FROM generate_series(1,6) n;
-UPDATE public.profiles SET role = CASE right(id::text, 1) WHEN '1' THEN 'admin' WHEN '2' THEN 'organizer' ELSE role END
+UPDATE public.profiles SET role = CASE right(id::text, 1) WHEN '1' THEN 'admin' WHEN '2' THEN 'organizer' WHEN '4' THEN 'reviewer' ELSE role END
 WHERE id::text LIKE '90000000-%';
 INSERT INTO public.conferences(id, title, start_date, end_date, status, organizer_id, blind_review)
 VALUES

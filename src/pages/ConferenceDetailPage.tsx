@@ -103,7 +103,6 @@ export function ConferenceDetailPage() {
   const canManageStaff =
     profile?.role === "admin" || profile?.id === conference?.organizer_id;
   const canRegisterRole =
-    profile?.role === "participant" ||
     profile?.role === "author" ||
     profile?.role === "reviewer";
   const registrationOpen = conference

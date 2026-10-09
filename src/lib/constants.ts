@@ -11,7 +11,6 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   organizer: "Ban tổ chức",
   reviewer: "Phản biện",
   author: "Tác giả",
-  participant: "Người tham dự",
 };
 
 export const CONFERENCE_STATUS_LABELS: Record<ConferenceStatus, string> = {
@@ -133,7 +132,6 @@ export const ALL_ROLES: UserRole[] = [
   "admin",
   "organizer",
   "author",
-  "participant",
 ];
 
 export const ALL_CONFERENCE_STATUSES: ConferenceStatus[] = [

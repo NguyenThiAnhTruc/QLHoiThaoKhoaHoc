@@ -643,7 +643,7 @@ BEGIN
     RAISE EXCEPTION 'Subject and message are required';
   END IF;
   IF target_role IS NOT NULL AND target_role NOT IN
-    ('admin', 'organizer', 'author', 'reviewer', 'participant') THEN
+    ('admin', 'organizer', 'author', 'reviewer') THEN
     RAISE EXCEPTION 'Invalid recipient role';
   END IF;
   INSERT INTO public.conversations(subject, conversation_type, created_by)
@@ -912,11 +912,11 @@ COMMIT;
 -- Apply after 20260925_author_workflow.sql.
 BEGIN;
 ALTER TABLE public.profiles DROP CONSTRAINT IF EXISTS profiles_role_check;
-ALTER TABLE public.profiles ADD CONSTRAINT profiles_role_check CHECK (role IN ('admin','organizer','author','reviewer','participant'));
+ALTER TABLE public.profiles ADD CONSTRAINT profiles_role_check CHECK (role IN ('admin','organizer','author','reviewer'));
 CREATE OR REPLACE FUNCTION public.require_author_reviewer()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM public.profiles WHERE id=NEW.reviewer_id AND role IN ('author','reviewer')) THEN
+  IF NOT EXISTS (SELECT 1 FROM public.profiles WHERE id=NEW.reviewer_id AND role = 'reviewer') THEN
     RAISE EXCEPTION 'Tài khoản không đủ điều kiện phản biện';
   END IF;
   RETURN NEW;
@@ -1133,11 +1133,7 @@ BEGIN
   VALUES (
     NEW.id,
     COALESCE(NEW.raw_user_meta_data->>'full_name', ''),
-    CASE
-      WHEN NEW.raw_user_meta_data->>'role' IN ('participant', 'author', 'reviewer')
-        THEN NEW.raw_user_meta_data->>'role'
-      ELSE 'participant'
-    END
+    'author'
   )
   ON CONFLICT (id) DO NOTHING;
   RETURN NEW;

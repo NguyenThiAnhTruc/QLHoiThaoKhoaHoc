@@ -21,7 +21,6 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/context/useAuth";
 import { Button } from "@/components/ui/Button";
-import { Select } from "@/components/ui/Field";
 import { getRememberLoginPreference, supabase } from "@/lib/supabase";
 import { showToast } from "@/components/ui/toastStore";
 import { PublicPortal } from "@/pages/PublicPortal";
@@ -29,9 +28,8 @@ import {
   CONFERENCE_STATUS_COLORS,
   CONFERENCE_STATUS_LABELS,
   getConferenceDisplayStatus,
-  ROLE_LABELS,
 } from "@/lib/constants";
-import type { Conference, ConferenceStatus, UserRole } from "@/types";
+import type { Conference, ConferenceStatus } from "@/types";
 import logo from "@/public/logo.jpg";
 
 type AuthMode = "landing" | "signin" | "signup" | "forgot";
@@ -43,20 +41,17 @@ export function AuthPage() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [fullName, setFullName] = useState("");
-  const [role, setRole] = useState<UserRole | "">("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [emailError, setEmailError] = useState("");
   const [passwordError, setPasswordError] = useState("");
-  const [roleError, setRoleError] = useState("");
   const [capsLockOn, setCapsLockOn] = useState(false);
   const [rememberLogin, setRememberLogin] = useState(
     getRememberLoginPreference,
   );
 
-  const signupRoles: UserRole[] = ["participant", "author", "reviewer"];
   const isSignup = mode === "signup";
   const isForgot = mode === "forgot";
   const passwordChecks = [
@@ -70,7 +65,6 @@ export function AuthPage() {
     setError("");
     setEmailError("");
     setPasswordError("");
-    setRoleError("");
 
     const cleanEmail = email.trim().toLowerCase();
     const validationError = validateForm(cleanEmail);
@@ -78,8 +72,6 @@ export function AuthPage() {
       setError(validationError);
       if (validationError.toLowerCase().includes("email"))
         setEmailError(validationError);
-      else if (validationError.toLowerCase().includes("vai trò"))
-        setRoleError(validationError);
       else if (!isForgot) setPasswordError(validationError);
       return;
     }
@@ -95,12 +87,7 @@ export function AuthPage() {
         showToast("success", "Đăng nhập thành công");
       }
     } else if (mode === "signup") {
-      const { error } = await signUp(
-        cleanEmail,
-        password,
-        fullName.trim(),
-        role as UserRole,
-      );
+      const { error } = await signUp(cleanEmail, password, fullName.trim());
       if (error) {
         setError(error);
         showToast("error", "Đăng ký thất bại");
@@ -148,7 +135,6 @@ export function AuthPage() {
 
     if (isSignup) {
       if (!fullName.trim()) return "Vui lòng nhập họ và tên";
-      if (!role) return "Vui lòng chọn vai trò đăng ký";
       if (password.length < 6) return "Mật khẩu phải có ít nhất 6 ký tự";
       if (password !== confirmPassword) return "Mật khẩu xác nhận không khớp";
     }
@@ -283,25 +269,7 @@ export function AuthPage() {
                       className="w-full bg-transparent text-sm text-slate-900 placeholder-slate-400 focus:outline-none"
                     />
                   </FormField>
-                  <Select
-                    label="Vai trò đăng ký *"
-                    value={role}
-                    onChange={(e) => {
-                      setRole(e.target.value as UserRole);
-                      setRoleError("");
-                    }}
-                    error={roleError}
-                    required
-                  >
-                    <option value="" disabled>
-                      Chọn vai trò
-                    </option>
-                    {signupRoles.map((item) => (
-                      <option key={item} value={item}>
-                        {ROLE_LABELS[item]}
-                      </option>
-                    ))}
-                  </Select>
+                  <p className="text-sm text-slate-500">Tài khoản mới được đăng ký với vai trò Tác giả.</p>
                 </>
               )}
 
@@ -684,7 +652,7 @@ export function LegacyLandingPage({
     ],
   ];
 
-  const roles = ["Admin", "Ban tổ chức", "Tác giả", "Người tham dự"];
+  const roles = ["Admin", "Ban tổ chức", "Tác giả", "Phản biện"];
 
   async function verifyCertificate() {
     const lookup = certificateNumber.trim();

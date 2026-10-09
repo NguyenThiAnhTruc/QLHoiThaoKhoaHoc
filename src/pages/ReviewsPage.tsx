@@ -33,7 +33,7 @@ export function ReviewsPage() {
         "*, reviewer:profile_directory(*)",
       )
       .order("assigned_at", { ascending: false });
-    if (profile.role === 'author' || profile.role === 'reviewer') query = query.eq('reviewer_id', profile.id);
+    if (profile.role === 'reviewer') query = query.eq('reviewer_id', profile.id);
 
     const { data, error } = await query;
     if (error) {

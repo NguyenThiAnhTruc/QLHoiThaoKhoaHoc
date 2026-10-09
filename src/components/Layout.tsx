@@ -49,13 +49,13 @@ const managementItems: NavItem[] = [
     key: "reviews",
     label: "Phản biện",
     icon: <ClipboardCheck className="h-5 w-5" />,
-    roles: ["admin", "organizer", "author", "reviewer"],
+    roles: ["admin", "organizer", "reviewer"],
   },
   {
     key: "sessions",
     label: "Lịch trình",
     icon: <ScheduleIcon className="h-5 w-5" />,
-    roles: ["admin", "organizer", "reviewer", "participant"],
+    roles: ["admin", "organizer", "reviewer"],
   },
   {
     key: "participants",
@@ -99,13 +99,13 @@ export function Layout({ children }: { children: ReactNode }) {
     (item.key === "participants" && conferences.length > 0);
   const personal =
     conferences.length === 0 &&
-    (profile?.role === "author" || profile?.role === "participant");
+    profile?.role === "author";
   const visibleManagementItems = managementItems.filter(canSee).map((item) => ({
     ...item,
     label:
       personal && item.key === "certificates"
         ? "Chứng nhận của tôi"
-        : (profile?.role === "author" || profile?.role === "reviewer") &&
+        : profile?.role === "reviewer" &&
             item.key === "reviews"
           ? "Phản biện được giao"
           : item.label,
@@ -175,17 +175,13 @@ export function Layout({ children }: { children: ReactNode }) {
         </button>
 
         <nav className="flex-1 overflow-y-auto px-3 py-4">
-          {profile?.role !== "participant" && (
-            <SidebarItem
-              item={overviewItem}
-              active={isActive(overviewItem.key)}
-              onNavigate={handleNavigate}
-            />
-          )}
+          <SidebarItem
+            item={overviewItem}
+            active={isActive(overviewItem.key)}
+            onNavigate={handleNavigate}
+          />
           <p className="mb-2 mt-5 px-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-            {profile?.role === "participant"
-              ? "Khám phá"
-              : profile?.role === "author"
+            {profile?.role === "author"
                 ? "Nghiên cứu & tham gia"
                 : "Quản lý"}
           </p>

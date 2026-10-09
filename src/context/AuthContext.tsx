@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
 import { setRememberLogin, supabase } from '@/lib/supabase';
 import { AuthContext } from '@/context/AuthContextCore';
-import type { Profile, UserRole } from '@/types';
+import type { Profile } from '@/types';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
@@ -64,11 +64,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error?.message ?? null };
   }
 
-  async function signUp(email: string, password: string, fullName: string, role: UserRole) {
+  async function signUp(email: string, password: string, fullName: string) {
     const { error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { full_name: fullName, role } },
+      options: { data: { full_name: fullName } },
     });
     return { error: error?.message ?? null };
   }

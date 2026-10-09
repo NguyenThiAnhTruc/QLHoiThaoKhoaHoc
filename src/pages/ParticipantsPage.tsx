@@ -204,7 +204,7 @@ export function ParticipantsPage() {
       p.user?.full_name ?? "",
       p.user?.email ?? "",
       p.attendance_code,
-      ROLE_LABELS[p.user?.role ?? "participant"],
+      p.user?.role ? ROLE_LABELS[p.user.role] : "",
       p.conference?.title ?? "",
       p.attended ? "Đã điểm danh" : "Chưa điểm danh",
       new Date(p.registered_at).toLocaleDateString("vi-VN"),

@@ -75,7 +75,7 @@ export function OrganizerRequests({ admin = false, onReviewed }: { admin?: boole
     finally { setBusy(false); }
   }
 
-  const canSubmit = !admin && ['author', 'participant'].includes(profile?.role ?? '') && !rows.some((row) => row.status === 'pending');
+  const canSubmit = !admin && profile?.role === 'author' && !rows.some((row) => row.status === 'pending');
   return <Card className="space-y-4 p-5">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <h2 className="font-semibold text-slate-900">Yêu cầu làm Ban tổ chức{admin ? ` (${rows.filter((row) => row.status === 'pending').length} chờ duyệt)` : ''}</h2>
@@ -87,7 +87,7 @@ export function OrganizerRequests({ admin = false, onReviewed }: { admin?: boole
         <Textarea label="Lý do xin làm Ban tổ chức" required minLength={10} maxLength={2000} value={reason} onChange={(event) => setReason(event.target.value)} />
         <Button type="submit" disabled={busy || reason.trim().length < 10}>{busy ? 'Đang gửi...' : 'Gửi yêu cầu'}</Button>
     </form>}
-    {!admin && profile && !['author', 'participant', 'organizer'].includes(profile.role) && <p className="text-sm text-slate-500">Vai trò hiện tại ({profile.role}) không thể gửi yêu cầu làm Ban tổ chức.</p>}
+    {!admin && profile && !['author', 'organizer'].includes(profile.role) && <p className="text-sm text-slate-500">Vai trò hiện tại ({profile.role}) không thể gửi yêu cầu làm Ban tổ chức.</p>}
     {!error && !loading && <>
       {!admin && profile?.role === 'organizer' && <p className="text-sm text-teal-700">Bạn đã có quyền Ban tổ chức.</p>}
       {rows.length === 0 && <p className="text-sm text-slate-500">Chưa có yêu cầu nào.</p>}

@@ -68,7 +68,7 @@ export function SessionsPage() {
       const { data: profs } = await supabase
         .from("profile_directory")
         .select("*")
-        .in("role", ["admin", "organizer", "author", "reviewer", "participant"])
+        .in("role", ["admin", "organizer", "author", "reviewer"])
         .order("full_name");
       if (profs && !cancelled) setSpeakers(profs as unknown as Profile[]);
     })();

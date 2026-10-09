@@ -79,7 +79,7 @@ export function PaperDetailPage() {
   const isPaperAuthor =
     isAuthor || authors.some((author) => author.id === profile?.id);
   const canReview =
-    (profile?.role === "author" || profile?.role === "reviewer") &&
+    profile?.role === "reviewer" &&
     reviews.some((review) => review.reviewer_id === profile?.id);
 
   useEffect(
@@ -226,7 +226,7 @@ export function PaperDetailPage() {
     const { data, error } = await supabase
       .from("profile_directory")
       .select("*")
-      .in("role", ["author", "reviewer"])
+      .eq("role", "reviewer")
       .order("full_name");
     if (data) setReviewers(data as unknown as Profile[]);
     if (error)
@@ -781,10 +781,9 @@ export function PaperDetailPage() {
               Chọn tài khoản phản biện
             </p>
             <p className="mt-1 text-sm text-slate-500">
-              Hiển thị tất cả {reviewerCandidates.length} tài khoản Reviewer và
-              Tác giả. Tài khoản Tác giả có thể phản biện những bài mà họ không
-              tham gia. Những người có xung đột với bài báo được giữ trong danh
-              sách để admin nhận biết.
+              Hiển thị {reviewerCandidates.length} tài khoản đã được Admin cấp
+              vai trò Phản biện. Những người có xung đột với bài báo được giữ
+              trong danh sách để Ban tổ chức nhận biết.
             </p>
           </div>
           <div className="max-h-80 overflow-y-auto rounded-lg border border-slate-200">

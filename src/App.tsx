@@ -44,18 +44,6 @@ function AppContent() {
   }, [authEvent]);
 
   useEffect(() => {
-    if (
-      !loading &&
-      session &&
-      !passwordRecovery &&
-      profile?.role === "participant" &&
-      ["dashboard", "reviews", "review-detail"].includes(route.page)
-    ) {
-      navigate("conferences");
-    }
-  }, [loading, session, passwordRecovery, profile?.role, route.page, navigate]);
-
-  useEffect(() => {
     if (!session) return;
     const returnTarget = sessionStorage.getItem(
       "confmanager:return-after-auth",
@@ -104,9 +92,7 @@ function AppContent() {
 
   const pageMap: Record<string, React.ReactNode> = {
     dashboard:
-      profile?.role === "participant" ? (
-        <ConferencesPage />
-      ) : profile?.role === "admin" ? (
+      profile?.role === "admin" ? (
         <DashboardPage />
       ) : profile?.role === "reviewer" ? (
         <ReviewerDashboard />
@@ -119,8 +105,7 @@ function AppContent() {
     papers: <PapersPage />,
     "paper-detail": <PaperDetailPage />,
     "paper-form": <PaperFormPage />,
-    reviews:
-      profile?.role === "participant" ? <ConferencesPage /> : <ReviewsPage />,
+    reviews: <ReviewsPage />,
     sessions: <SessionsPage />,
     participants: <ParticipantsPage />,
     certificates: <CertificatesPage />,

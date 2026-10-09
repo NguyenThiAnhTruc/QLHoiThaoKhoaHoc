@@ -1,6 +1,6 @@
 import { createContext } from "react";
 import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
-import type { Profile, UserRole } from "@/types";
+import type { Profile } from "@/types";
 
 export interface AuthContextValue {
   session: Session | null;
@@ -13,7 +13,6 @@ export interface AuthContextValue {
     email: string,
     password: string,
     fullName: string,
-    role: UserRole,
   ) => Promise<{ error: string | null }>;
   resetPassword: (email: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
