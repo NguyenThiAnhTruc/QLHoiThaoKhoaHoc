@@ -85,55 +85,64 @@ export function AuthPage() {
     }
 
     setLoading(true);
+    try {
+      if (mode === "signin") {
+        const { error } = await signIn(cleanEmail, password, rememberLogin);
+        if (error) {
+          setPasswordError("Email hoặc mật khẩu không đúng.");
+          showToast("error", "Đăng nhập thất bại");
+        } else {
+          showToast("success", "Đăng nhập thành công");
+        }
+      } else if (mode === "signup") {
+        const { error } = await signUp(
+          cleanEmail,
+          password,
+          fullName.trim(),
+          role as UserRole,
+        );
+        if (error) {
+          setError(error);
+          showToast("error", "Đăng ký thất bại");
+        } else {
+          showToast("success", "Đăng ký thành công! Vui lòng đăng nhập.");
+          switchMode("signin");
+          setPassword("");
+          setConfirmPassword("");
+        }
+      } else {
+        const { error } = await resetPassword(cleanEmail);
+        if (error) {
+          setError(error);
+          showToast("error", "Gửi email khôi phục thất bại");
+        } else {
+          showToast("success", "Đã gửi email khôi phục mật khẩu");
+          switchMode("signin");
+        }
+      }
 
-    if (mode === "signin") {
-      const { error } = await signIn(cleanEmail, password, rememberLogin);
-      if (error) {
-        setPasswordError("Email hoặc mật khẩu không đúng.");
-        showToast("error", "Đăng nhập thất bại");
-      } else {
-        showToast("success", "Đăng nhập thành công");
-      }
-    } else if (mode === "signup") {
-      const { error } = await signUp(
-        cleanEmail,
-        password,
-        fullName.trim(),
-        role as UserRole,
-      );
-      if (error) {
-        setError(error);
-        showToast("error", "Đăng ký thất bại");
-      } else {
-        showToast("success", "Đăng ký thành công! Vui lòng đăng nhập.");
-        switchMode("signin");
-        setPassword("");
-        setConfirmPassword("");
-      }
-    } else {
-      const { error } = await resetPassword(cleanEmail);
-      if (error) {
-        setError(error);
-        showToast("error", "Gửi email khôi phục thất bại");
-      } else {
-        showToast("success", "Đã gửi email khôi phục mật khẩu");
-        switchMode("signin");
-      }
+    } catch {
+      setError('Không thể kết nối. Vui lòng kiểm tra mạng và thử lại.');
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   }
 
   async function handleGoogleSignIn() {
     setError("");
     setPasswordError("");
     setLoading(true);
-    const { error } = await signInWithGoogle(rememberLogin);
-    if (error) {
-      setError(
-        "Chưa thể đăng nhập bằng Google. Vui lòng thử lại hoặc dùng email và mật khẩu.",
-      );
-      showToast("error", "Đăng nhập Google thất bại");
+    try {
+      const { error } = await signInWithGoogle(rememberLogin);
+      if (error) {
+        setError(
+          "Chưa thể đăng nhập bằng Google. Vui lòng thử lại hoặc dùng email và mật khẩu.",
+        );
+        showToast("error", "Đăng nhập Google thất bại");
+        setLoading(false);
+      }
+    } catch {
+      setError('Không thể kết nối đăng nhập Google. Vui lòng thử lại.');
       setLoading(false);
     }
   }

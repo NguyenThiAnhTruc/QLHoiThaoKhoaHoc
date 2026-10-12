@@ -9,7 +9,7 @@ function json(status:number,data:unknown){return new Response(JSON.stringify(dat
 function encoded(value:string){return base64(encoder.encode(value));}
 function folded(value:string){return value.match(/.{1,76}/g)?.join("\r\n") ?? "";}
 
-export function createPostSeminarHandler(config:Config, readFont:()=>Promise<Uint8Array>, fetcher:typeof fetch=fetch) {
+export function createPostSeminarHandler(config:Config, readFont:()=>Promise<Uint8Array>, fetcher:typeof fetch=fetch, readSeal?:()=>Promise<Uint8Array>) {
   return async(request:Request)=>{
     if(request.method!=="POST")return json(405,{error:"POST required"});
     if(!config.secret)return json(503,{error:"Automation secrets missing"});
@@ -33,6 +33,7 @@ export function createPostSeminarHandler(config:Config, readFont:()=>Promise<Uin
       let sent=0,failed=0;
       for(const job of jobs){
         const filter=`post_seminar_jobs?id=eq.${job.id}&status=eq.processing&attempts=eq.${job.attempts}`;
+        let deliveryStarted=false;
         try {
           const user=await row("profiles",job.user_id,"full_name,organization,contact_email");
           const conference=await row("conferences",job.conference_id,"title,location,start_date,end_date,status,auto_certificates,auto_surveys");
@@ -40,8 +41,9 @@ export function createPostSeminarHandler(config:Config, readFont:()=>Promise<Uin
           if(!email.test(user.contact_email))throw new Error("Recipient email invalid");
           let subject:string,body:string,pdf:Uint8Array|undefined;
           if(job.kind==="certificate"){
-            const cert=await row("certificates",job.certificate_id!,"id,certificate_number,issued_at,attendance_minutes");
-            pdf=await createCertificatePdf({name:user.full_name,organization:user.organization,title:conference.title,location:conference.location,number:cert.certificate_number,start:conference.start_date,end:conference.end_date,issued:cert.issued_at,minutes:cert.attendance_minutes},await readFont());
+            const cert=await row("certificates",job.certificate_id!,"id,certificate_number,issued_at,attendance_minutes,revoked_at");
+            if(cert.revoked_at)throw new Error("Recipient certificate revoked");
+            pdf=await createCertificatePdf({name:user.full_name,organization:user.organization,title:conference.title,location:conference.location,number:cert.certificate_number,start:conference.start_date,end:conference.end_date,issued:cert.issued_at,minutes:cert.attendance_minutes},await readFont(),readSeal ? await readSeal() : undefined);
             const path=`${job.user_id}/${cert.id}.pdf`;
             const upload=await fetcher(`${config.url}/storage/v1/object/certificate-pdfs/${path}`,{method:"POST",headers:{apikey:config.key,Authorization:`Bearer ${config.key}`,"Content-Type":"application/pdf","x-upsert":"true"},body:pdf as BodyInit});
             if(!upload.ok)throw new Error(`PDF storage failed (${upload.status})`);
@@ -56,6 +58,9 @@ export function createPostSeminarHandler(config:Config, readFont:()=>Promise<Uin
           const mime=[`From: ${config.sender}`,`To: ${user.contact_email}`,`Subject: =?UTF-8?B?${encoded(subject)}?=`,"MIME-Version: 1.0",`Content-Type: multipart/mixed; boundary="${boundary}"`,"",`--${boundary}`,"Content-Type: text/plain; charset=UTF-8","Content-Transfer-Encoding: base64","",folded(encoded(body))];
           if(pdf)mime.push(`--${boundary}`,"Content-Type: application/pdf; name=\"certificate.pdf\"","Content-Disposition: attachment; filename=\"certificate.pdf\"","Content-Transfer-Encoding: base64","",folded(base64(pdf)));
           mime.push(`--${boundary}--`,"");
+          const reserved=await api("rpc/begin_post_seminar_delivery",{method:"POST",body:JSON.stringify({target_job_id:job.id,expected_attempt:job.attempts})});
+          if(reserved!==true)continue;
+          deliveryStarted=true;
           const delivered=await fetcher("https://gmail.googleapis.com/gmail/v1/users/me/messages/send",{method:"POST",headers:{Authorization:`Bearer ${token.access_token}`,"Content-Type":"application/json"},body:JSON.stringify({raw:encoded(mime.join("\r\n")).replaceAll("+","-").replaceAll("/","_").replace(/=+$/,"")})});
           if(!delivered.ok)throw new Error(`Gmail delivery failed (${delivered.status})`);
           await api(filter,{method:"PATCH",body:JSON.stringify({status:"sent",sent_at:new Date().toISOString(),last_error:""})});sent++;
@@ -63,7 +68,7 @@ export function createPostSeminarHandler(config:Config, readFont:()=>Promise<Uin
           failed++;
           // Never persist provider responses, tokens, or arbitrary network error text.
           const message=error instanceof Error && /^(Database request|Recipient|Automation disabled|PDF storage|Gmail delivery)/.test(error.message)?error.message:"Processing failed; check function configuration";
-          await api(filter,{method:"PATCH",body:JSON.stringify({status:"failed",last_error:message})});
+          await api(filter,{method:"PATCH",body:JSON.stringify({status:deliveryStarted?"uncertain":"failed",last_error:message})});
         }
       }
       return json(200,{sent,failed});

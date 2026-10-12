@@ -137,6 +137,7 @@ export interface PaperAuthor {
 }
 
 export interface Review {
+  revision?: number;
   response_at?: string | null;
   decline_reason?: string;
   id: string;
@@ -218,6 +219,9 @@ export interface FeePayment {
 }
 
 export interface Certificate {
+  verification_token?: string;
+  revoked_at?: string | null;
+  revocation_reason?: string;
   attendance_minutes?: number;
   pdf_path?: string | null;
   id: string;

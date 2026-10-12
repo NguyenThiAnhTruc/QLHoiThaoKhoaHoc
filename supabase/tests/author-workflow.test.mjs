@@ -28,6 +28,7 @@ test('author workflow database integration', async (t) => {
   const migration = await readSqlSection('20260925_author_workflow');
   await db.exec(migration);
   await db.exec(migration); // Re-applying the patch is safe.
+  await db.exec(await readFile(new URL('../migrations/20261011_review_revision.sql',import.meta.url),'utf8'));
   const owner = '10000000-0000-0000-0000-000000000001';
   const coauthor = '10000000-0000-0000-0000-000000000002';
   const reviewer = '10000000-0000-0000-0000-000000000003';
@@ -223,6 +224,10 @@ test('author workflow database integration', async (t) => {
     await asUser(reviewer);
     await db.query('SELECT public.respond_review_assignment($1,true)',[invitationId]);
     assert.equal(await scalar('SELECT status FROM public.reviews WHERE id=$1',[invitationId]),'in_progress');
+    const oldRevision=await scalar('SELECT revision FROM public.reviews WHERE id=$1',[invitationId]);
+    assert.equal((await db.query('UPDATE public.reviews SET score=7 WHERE id=$1 AND revision=$2 RETURNING id',[invitationId,oldRevision])).rows.length,1);
+    assert.equal((await db.query('UPDATE public.reviews SET score=2 WHERE id=$1 AND revision=$2 RETURNING id',[invitationId,oldRevision])).rows.length,0);
+    assert.equal(await scalar('SELECT score FROM public.reviews WHERE id=$1',[invitationId]),7);
     await assert.rejects(db.query("UPDATE public.reviews SET status='completed',score=8,recommendation='accept' WHERE id=$1",[invitationId]),/nhận xét/);
     await db.query("UPDATE public.reviews SET status='completed',score=8,comments='Đánh giá đầy đủ',recommendation='accept' WHERE id=$1",[invitationId]);
     assert.ok(await scalar('SELECT completed_at FROM public.reviews WHERE id=$1',[invitationId]));

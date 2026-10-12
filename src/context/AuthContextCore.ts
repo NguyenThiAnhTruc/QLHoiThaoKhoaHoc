@@ -6,6 +6,7 @@ export interface AuthContextValue {
   session: Session | null;
   profile: Profile | null;
   loading: boolean;
+  profileError: string;
   authEvent: AuthChangeEvent | null;
   signIn: (email: string, password: string, remember?: boolean) => Promise<{ error: string | null }>;
   signInWithGoogle: (remember?: boolean) => Promise<{ error: string | null }>;

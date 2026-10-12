@@ -14,8 +14,12 @@ const results = await Promise.all([
   client.from('conference_resources').select('id').limit(1),
   client.from('session_feedback').select('session_id').limit(1),
   client.from('certificates').select('attendance_minutes,pdf_path').limit(1),
+  client.from('certificates').select('verification_token,revoked_at,revocation_reason').limit(0),
+  client.from('reviews').select('revision').limit(0),
+  client.rpc('verify_certificate',{token:'00000000-0000-0000-0000-000000000000'}),
 ]);
 for(let i=0;i<results.length;i++) {
   const error=results[i].error;
-  process.stdout.write(`${['Conference configuration','Paper metadata','Parallel sessions','Resource center','Session feedback','Certificate PDF'][i]}: ${error ? `${error.code ?? 'NETWORK'} ${error.message}` : 'schema available'}\n`);
+  if(error) process.exitCode=1;
+  process.stdout.write(`${['Conference configuration','Paper metadata','Parallel sessions','Resource center','Session feedback','Certificate PDF','Certificate verification/revocation','Review revisions','Public token verification'][i]}: ${error ? `${error.code ?? 'NETWORK'} ${error.message}` : 'schema available'}\n`);
 }

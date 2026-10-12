@@ -1,3 +1,5 @@
+import { fetchAll } from "@/lib/fetchAll";
+import { confirmInsert, insertAttempt, type InsertAttempt } from "@/lib/retryableInsert";
 import { AgendaView } from "@/components/AgendaView";
 import { useRouter } from "@/context/useRouter";
 import { DateInput } from "@/components/ui/DateInput";
@@ -56,6 +58,8 @@ export function SessionsPage() {
   const [speakers, setSpeakers] = useState<Profile[]>([]);
   const [saving, setSaving] = useState(false);
   const paperRequest = useRef(0);
+  const loadRequest=useRef(0);
+  const createAttempt=useRef<InsertAttempt|null>(null);
 
   const [managedIds, setManagedIds] = useState<Set<string>>(new Set());
   const canEdit = managedIds.size > 0;
@@ -105,11 +109,13 @@ export function SessionsPage() {
   }, [profile?.id, profile?.role]);
 
   async function load() {
+    const request=++loadRequest.current;
     setLoading(true);
-    const { data, error } = await supabase
+    const { data, error } = await fetchAll((from,to)=>supabase
       .from("sessions")
-      .select("*, conference:conferences(*), speaker:profile_directory(*), committee:conference_committees(*)")
-      .order("start_time", { ascending: true });
+      .select("*, conference:conferences(*), speaker:profile_directory(*), committee:conference_committees(*)",{count:"exact"})
+      .order("start_time", { ascending: true }).order("id").range(from,to));
+    if(request!==loadRequest.current)return;
     if (error) {
       showToast("error", "Không thể tải lịch trình");
     } else {
@@ -125,12 +131,12 @@ export function SessionsPage() {
       setPapers([]);
       return;
     }
-    const { data, error } = await supabase
-      .rpc('read_papers')
+    const { data, error } = await fetchAll((from,to)=>supabase
+      .rpc('read_papers',{}, {count:'exact'})
       .eq("conference_id", confId)
       .eq("status", "accepted")
       .select("*")
-      .order("title");
+      .order("title").order("id").range(from,to));
     if (request !== paperRequest.current) return;
     if (error) showToast("error", "Không thể tải bài báo của hội thảo");
     else setPapers((data ?? []) as unknown as Paper[]);
@@ -206,7 +212,7 @@ export function SessionsPage() {
       const { error } = await supabase
         .from("sessions")
         .update(payload)
-        .eq("id", editingSession.id);
+        .eq("id", editingSession.id).select("id").single();
       if (error) {
         showToast("error", "Cập nhật thất bại: " + error.message);
       } else {
@@ -215,14 +221,13 @@ export function SessionsPage() {
         load();
       }
     } else {
-      const { error } = await supabase.from("sessions").insert(payload);
-      if (error) {
-        showToast("error", "Tạo phiên thất bại: " + error.message);
-      } else {
-        showToast("success", "Tạo phiên thành công");
-        setModalOpen(false);
-        load();
-      }
+      createAttempt.current=insertAttempt(createAttempt.current,payload);
+      const id=createAttempt.current.id;
+      await confirmInsert(()=>supabase.from("sessions").insert({...payload,id}),()=>supabase.from("sessions").select("id").eq("id",id).maybeSingle());
+      createAttempt.current=null;
+      showToast("success", "Tạo phiên thành công");
+      setModalOpen(false);
+      void load();
     }
     } catch {
       showToast("error", "Không thể lưu lịch trình. Vui lòng thử lại.");
@@ -254,13 +259,15 @@ export function SessionsPage() {
     const target = sessions.find((session) => session.id === id);
     if (!target || !managedIds.has(target.conference_id)) return;
     if (!confirm("Xóa phiên này?")) return;
-    const { error } = await supabase.from("sessions").delete().eq("id", id);
+    try {
+    const { error } = await supabase.from("sessions").delete().eq("id", id).select("id").single();
     if (error) {
       showToast("error", "Xóa thất bại");
     } else {
       showToast("success", "Đã xóa phiên");
-      load();
+      void load();
     }
+    } catch {showToast("error","Chưa xác nhận kết quả xóa phiên. Tải lại lịch trình trước khi thử lại.");}
   }
 
   // group sessions by conference

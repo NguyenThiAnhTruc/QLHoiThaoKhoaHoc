@@ -21,8 +21,9 @@ Chạy tuần tự bằng Supabase SQL Editor:
 4. `supabase/migrations/20260927_disable_blind_review.sql`.
 5. `supabase/migrations/20261008_complete_workflows.sql`.
 6. `supabase/migrations/20261008_seminar_experience.sql`.
+7. `supabase/migrations/20261009_certificate_consistency.sql`.
 
-Database đang sử dụng: không chạy initializer. Nếu đã có các cập nhật trước, chạy bước 5–6. Khi cần áp dụng lại tất cả cập nhật, giữ thứ tự trên vì các bản cũ có thể định nghĩa lại hàm đã sửa. Các bản cập nhật mới có thể chạy lại và không xóa dữ liệu/tài khoản. Có `DATABASE_URL` trong môi trường thì chạy `node scripts/apply-workflow-migrations.mjs` để áp dụng hai migration mới.
+Database đang sử dụng: không chạy initializer. Nếu đã có các cập nhật trước, chạy bước 5–7. Khi cần áp dụng lại tất cả cập nhật, giữ thứ tự trên vì các bản cũ có thể định nghĩa lại hàm đã sửa. Các bản cập nhật mới có thể chạy lại và không xóa dữ liệu/tài khoản. Có `DATABASE_URL` trong môi trường thì chạy `node scripts/apply-workflow-migrations.mjs` để áp dụng ba migration mới.
 
 Tạo tài khoản quản trị bằng quy trình đăng ký thật, rồi quản trị viên Supabase thiết lập `public.profiles.role = 'admin'` cho đúng UUID của tài khoản đó. Tài khoản người dùng khác đăng ký từ ứng dụng; yêu cầu trở thành ban tổ chức phải được quản trị viên duyệt.
 
@@ -57,3 +58,13 @@ Kiểm thử dùng PostgreSQL cục bộ (PGlite) và các schema Auth/Storage g
 Deploy thư mục `dist` sau khi áp dụng migration và cấu hình môi trường. Các Edge Functions `paper-download`, `send-gmail-notification` và `post-seminar` cần được deploy vào cùng Supabase project; cấu hình email theo `supabase/GMAIL_NOTIFICATIONS.md` và `supabase/POST_SEMINAR_AUTOMATION.md`. Kiểm tra đăng nhập, tải PDF, QR camera qua HTTPS và gửi email trên môi trường thực trước nghiệm thu.
 
 Kiểm tra dependency ngày 08/10/2026: `npm audit --omit=dev` không báo lỗ hổng sau cập nhật tương thích. Audit đầy đủ còn 13 cảnh báo ở công cụ phát triển (ESLint, Vite/esbuild, Tailwind và dependency liên quan); việc xử lý toàn bộ cần nâng phiên bản lớn và kiểm tra lại cấu hình build.
+
+## Kiểm tra local trước triển khai
+
+Xem [hướng dẫn local](docs/LOCAL_SETUP.md) và [báo cáo rà soát mới](docs/PROJECT_REVIEW_20261010.md). Chạy `npm run check`, `npm run verify:ui` và `npm run verify:schema`. Database đang dùng thiếu cập nhật có thể chạy file gộp `supabase/migrations/upgrade_existing_database.sql` trong SQL Editor.
+
+
+Dọn file bỏ dở: xem [UPLOAD_CLEANUP.md](./supabase/UPLOAD_CLEANUP.md). Migration `20261010_orphan_upload_cleanup.sql` đã nằm trong bundle nâng cấp; cần deploy function `upload-cleanup` riêng để thực hiện dọn file.
+
+
+Nâng cấp local mới: áp dụng `20261011_local_improvements.sql` sau bundle đến 20261010 để bật QR tra cứu, thu hồi chứng nhận, phiên bản phản biện và bảo vệ nhật ký. Kiểm thử tài khoản và vận hành: [OPERATIONS.md](./docs/OPERATIONS.md).

@@ -4,3 +4,6 @@ project_id = "conference-management"
 # Cron authenticates with the server-only X-Job-Secret, never a browser credential.
 verify_jwt = false
 static_files = ["./functions/post-seminar/assets/*"]
+
+[functions.upload-cleanup]
+verify_jwt = false

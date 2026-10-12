@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { transform } from 'esbuild';
 const { code } = await transform(await readFile(new URL('../../src/lib/fetchAll.ts', import.meta.url), 'utf8'), { loader: 'ts', format: 'esm' });
-const { fetchAll } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+const { fetchAll, fetchByIds } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
 
 test('returns all records despite a smaller server row cap', async () => {
   const source = Array.from({ length: 1203 }, (_, id) => ({ id }));
@@ -27,4 +27,24 @@ test('handles missing counts and empty data without looping forever', async () =
   assert.deepEqual(result.data, [1]);
   const empty = await fetchAll(async () => ({ data: [], count: 0, error: null }));
   assert.deepEqual(empty.data, []);
+});
+
+test('a network exception on a later batch never publishes partial rows',async()=>{
+ const result=await fetchAll(async from=>{if(from)throw new Error('Network failure');return {data:[1],count:2,error:null};});
+ assert.equal(result.data,null);assert.ok(result.error);
+});
+
+
+test('related-record queries bound IN filters and preserve all rows under small API caps',async()=>{
+ const ids=Array.from({length:267},(_,i)=>String(i));let calls=0;
+ const result=await fetchByIds([...ids,ids[0]],async(batch,from)=>{
+  assert.ok(batch.length<=100);calls++;
+  return {data:batch.slice(from,from+17),error:null,count:batch.length};
+ });
+ assert.deepEqual(result.data,ids);assert.ok(calls>3);
+});
+test('a failed related-record batch does not expose an incomplete list',async()=>{
+ const ids=Array.from({length:101},(_,i)=>String(i));
+ const result=await fetchByIds(ids,async(batch)=>batch.includes('100')?{data:null,error:{message:'failed'},count:null}:{data:batch,error:null,count:batch.length});
+ assert.equal(result.data,null);assert.ok(result.error);
 });

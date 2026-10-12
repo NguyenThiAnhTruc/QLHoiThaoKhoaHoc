@@ -1,3 +1,4 @@
+import { exportExcel } from "@/lib/exportExcel";
 import { useCallback, useEffect, useState } from 'react';
 import { Plus, Search, FileText, Calendar, Download } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
@@ -12,7 +13,10 @@ import {
   PAPER_STATUS_COLORS,
 } from '@/lib/constants';
 import type { Paper, PaperStatus } from '@/types';
+import { fetchAll } from '@/lib/fetchAll';
 import { PAPER_STATUS_DISPLAY_ORDER, PAPER_STATUS_NUMBERS } from '@/lib/paperWorkflow';
+
+import { listPage, normalizeSearch } from "@/lib/listPage";
 
 export function PapersPage() {
   const { profile } = useAuth();
@@ -52,12 +56,10 @@ export function PapersPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const query = supabase
-      .rpc('read_papers')
+    const { data, error } = await fetchAll((from, to) => supabase
+      .rpc('read_papers', {}, { count: 'exact' })
       .select('*, conference:conferences(*), submitted_by:profile_directory(*)')
-      .order('created_at', { ascending: false });
-
-    const { data, error } = await query;
+      .order('created_at', { ascending: false }).order('id').range(from, to));
     if (error) {
       console.error('Failed to load papers:', error);
       showToast('error', `Không thể tải danh sách bài báo: ${error.message}`);
@@ -72,8 +74,8 @@ export function PapersPage() {
   }, [load]);
 
   const filtered = papers.filter((p) => {
-    const query = search.trim().toLowerCase();
-    const matchesSearch = !query || [p.title, p.abstract, p.keywords, p.problem_statement, p.objectives, p.author_group].some((value) => value?.toLowerCase().includes(query));
+    const query = normalizeSearch(search);
+    const matchesSearch = !query || [p.title, p.abstract, p.keywords, p.problem_statement, p.objectives, p.author_group].some((value) => normalizeSearch(value ?? "").includes(query));
     const matchesStatus = statusFilter === 'all' || p.status === statusFilter;
     const owner = typeof p.submitted_by === 'string' ? p.submitted_by : p.submitted_by?.id;
     return matchesSearch && matchesStatus && (!conferenceFilter || p.conference_id === conferenceFilter)
@@ -81,8 +83,10 @@ export function PapersPage() {
   }).sort((left, right) =>
     PAPER_STATUS_DISPLAY_ORDER.indexOf(left.status) - PAPER_STATUS_DISPLAY_ORDER.indexOf(right.status)
     || new Date(right.created_at).getTime() - new Date(left.created_at).getTime());
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
+  const pagination=listPage(filtered,page,pageSize);
+  const totalPages=pagination.totalPages;
+  const paginated=pagination.items;
+  useEffect(()=>{if(page!==pagination.page)setPage(pagination.page);},[page,pagination.page]);
 
   function exportCSV() {
     const csv = [
@@ -114,6 +118,7 @@ export function PapersPage() {
           <p className="mt-1 text-sm text-slate-500">Đọc các bài báo đã được chấp nhận và quản lý những bài bạn được cấp quyền.</p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" disabled={loading || filtered.length===0} onClick={()=>exportExcel("bai-bao",["Tiêu đề","Hội thảo","Trạng thái","Từ khóa","Ngày nộp"],filtered.map(p=>[p.title,p.conference?.title ?? "",PAPER_STATUS_LABELS[p.status],p.keywords ?? "",new Date(p.created_at).toLocaleDateString("vi-VN")]))}>Xuất Excel</Button>
           <Button variant="outline" onClick={exportCSV}>
             <Download className="h-4 w-4" /> Xuất CSV
           </Button>
