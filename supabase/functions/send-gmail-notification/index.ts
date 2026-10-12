@@ -58,7 +58,7 @@ Deno.serve(async (request) => {
     if (!subject || subject.length > 160 || !message || message.length > 4000) {
       return json(400, { error: 'Tiêu đề và nội dung bắt buộc; tiêu đề tối đa 160, nội dung tối đa 4000 ký tự.' });
     }
-    if (targetRole !== null && !['admin', 'organizer', 'author', 'participant'].includes(targetRole)) {
+    if (targetRole !== null && !['admin', 'organizer', 'author', 'reviewer'].includes(targetRole)) {
       return json(400, { error: 'Nhóm người nhận không hợp lệ.' });
     }
 

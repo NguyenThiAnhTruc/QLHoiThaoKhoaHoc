@@ -30,8 +30,8 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE TABLE IF NOT EXISTS public.profiles (
   id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   full_name text NOT NULL DEFAULT '',
-  role text NOT NULL DEFAULT 'participant'
-    CHECK (role IN ('admin', 'organizer', 'author', 'participant')),
+  role text NOT NULL DEFAULT 'author'
+    CHECK (role IN ('admin', 'organizer', 'author', 'reviewer')),
   phone text DEFAULT '',
   organization text DEFAULT '',
   avatar_url text DEFAULT '',
@@ -334,7 +334,7 @@ ALTER TABLE public.profiles
 
 ALTER TABLE public.profiles
   ADD CONSTRAINT profiles_role_check
-  CHECK (role IN ('admin', 'organizer', 'reviewer', 'author', 'participant'));
+  CHECK (role IN ('admin', 'organizer', 'reviewer', 'author'));
 
 ALTER TABLE public.profiles
   ADD COLUMN IF NOT EXISTS notification_preferences jsonb NOT NULL DEFAULT '{"system": true, "messages": true, "reviews": true, "certificates": true}'::jsonb,
@@ -604,7 +604,7 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
-  -- Users may self-select normal roles, but never admin/organizer.
+  -- Public registration always creates an author account.
   INSERT INTO public.profiles (
     id,
     full_name,
@@ -613,11 +613,7 @@ BEGIN
   VALUES (
     NEW.id,
     COALESCE(NEW.raw_user_meta_data->>'full_name', ''),
-    CASE
-      WHEN NEW.raw_user_meta_data->>'role' IN ('participant', 'author', 'reviewer')
-        THEN NEW.raw_user_meta_data->>'role'
-      ELSE 'participant'
-    END
+    'author'
   )
   ON CONFLICT (id) DO NOTHING;
 
@@ -1553,7 +1549,7 @@ FOR INSERT
 TO authenticated
 WITH CHECK (
   auth.uid() = id
-  AND role IN ('participant', 'author')
+  AND role = 'author'
 );
 
 
@@ -1800,13 +1796,13 @@ ON public.reviews
 FOR UPDATE
 TO authenticated
 USING (
-  reviewer_id = auth.uid()
+  (reviewer_id = auth.uid() AND public.get_current_user_role() = 'reviewer')
   OR public.is_conference_organizer(
     (SELECT conference_id FROM public.papers WHERE id = reviews.paper_id)
   )
 )
 WITH CHECK (
-  reviewer_id = auth.uid()
+  (reviewer_id = auth.uid() AND public.get_current_user_role() = 'reviewer')
   OR public.is_conference_organizer(
     (SELECT conference_id FROM public.papers WHERE id = paper_id)
   )
@@ -2405,7 +2401,7 @@ BEGIN
       crypt(demo_password, gen_salt('bf')),
       now(),
       '{"provider":"email","providers":["email"]}'::jsonb,
-      '{"full_name":"Võ Gia Hân","role":"participant"}'::jsonb,
+      '{"full_name":"Võ Gia Hân","role":"author"}'::jsonb,
       now(),
       now(),
       '',
@@ -2533,10 +2529,10 @@ BEGIN
     (
       '00000000-0000-0000-0000-000000000005',
       'Võ Gia Hân',
-      'participant',
+      'author',
       '0900000005',
       'Khách tham dự',
-      'Tài khoản người tham dự dùng để đăng ký hội thảo.'
+      'Tài khoản tác giả dùng để đăng ký hội thảo.'
     )
   ON CONFLICT (id) DO UPDATE
   SET
@@ -3075,7 +3071,7 @@ BEGIN
   END IF;
 
   IF target_role IS NOT NULL
-    AND target_role NOT IN ('admin', 'organizer', 'author', 'participant') THEN
+    AND target_role NOT IN ('admin', 'organizer', 'author', 'reviewer') THEN
     RAISE EXCEPTION 'Invalid recipient role';
   END IF;
 
@@ -3282,8 +3278,8 @@ RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE current_role text;
 BEGIN
   SELECT role INTO current_role FROM public.profiles WHERE id = auth.uid() FOR UPDATE;
-  IF current_role IS NULL OR current_role NOT IN ('author', 'participant') THEN
-    RAISE EXCEPTION 'Chỉ tác giả và người tham dự được gửi yêu cầu';
+  IF current_role IS NULL OR current_role <> 'author' THEN
+    RAISE EXCEPTION 'Chỉ tác giả được gửi yêu cầu';
   END IF;
   IF request_reason IS NULL OR char_length(btrim(request_reason)) NOT BETWEEN 10 AND 2000 THEN
     RAISE EXCEPTION 'Lý do phải có từ 10 đến 2000 ký tự';
@@ -3308,7 +3304,7 @@ BEGIN
   IF request_row.user_id = auth.uid() THEN RAISE EXCEPTION 'Không thể tự duyệt yêu cầu'; END IF;
   SELECT role INTO target_role FROM public.profiles WHERE id = request_row.user_id FOR UPDATE;
   IF approve THEN
-    IF target_role NOT IN ('author', 'participant', 'organizer') THEN RAISE EXCEPTION 'Vai trò tài khoản đã thay đổi, hãy từ chối yêu cầu'; END IF;
+    IF target_role NOT IN ('author', 'organizer') THEN RAISE EXCEPTION 'Vai trò tài khoản đã thay đổi, hãy từ chối yêu cầu'; END IF;
     UPDATE public.profiles SET role = 'organizer' WHERE id = request_row.user_id AND role <> 'organizer';
   END IF;
   UPDATE public.organizer_requests SET status = CASE WHEN approve THEN 'approved' ELSE 'rejected' END,
@@ -3342,13 +3338,12 @@ USING (
 );
 
 
--- Preserve existing assignments as history; only authors can be assigned or
--- submit further review updates. Existing conflict-of-interest checks remain.
+-- Only accounts granted the reviewer role can receive assignments.
 CREATE OR REPLACE FUNCTION public.require_author_reviewer()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM public.profiles WHERE id = NEW.reviewer_id AND role IN ('author', 'reviewer')) THEN
-    RAISE EXCEPTION 'Chỉ tài khoản Tác giả được phân công và thực hiện phản biện';
+  IF NOT EXISTS (SELECT 1 FROM public.profiles WHERE id = NEW.reviewer_id AND role = 'reviewer') THEN
+    RAISE EXCEPTION 'Chỉ tài khoản Phản biện được phân công';
   END IF;
   RETURN NEW;
 END;
@@ -3837,11 +3832,11 @@ COMMIT;
 -- Apply after 20260925_author_workflow.sql.
 BEGIN;
 ALTER TABLE public.profiles DROP CONSTRAINT IF EXISTS profiles_role_check;
-ALTER TABLE public.profiles ADD CONSTRAINT profiles_role_check CHECK (role IN ('admin','organizer','author','reviewer','participant'));
+ALTER TABLE public.profiles ADD CONSTRAINT profiles_role_check CHECK (role IN ('admin','organizer','author','reviewer'));
 CREATE OR REPLACE FUNCTION public.require_author_reviewer()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM public.profiles WHERE id=NEW.reviewer_id AND role IN ('author','reviewer')) THEN
+  IF NOT EXISTS (SELECT 1 FROM public.profiles WHERE id=NEW.reviewer_id AND role = 'reviewer') THEN
     RAISE EXCEPTION 'Tài khoản không đủ điều kiện phản biện';
   END IF;
   RETURN NEW;

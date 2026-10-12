@@ -133,7 +133,6 @@ export const ALL_ROLES: UserRole[] = [
   "admin",
   "organizer",
   "author",
-  "participant",
 ];
 
 export const ALL_CONFERENCE_STATUSES: ConferenceStatus[] = [
