@@ -32,6 +32,16 @@ test('SQL bundles initialize and upgrade twice without shifting conference times
   await db.exec(disableBlindReview);
   await db.exec(disableBlindReview);
   await db.exec(await read('../migrations/create_reviewer_accounts.sql'));
+  await db.exec("ALTER TABLE public.profiles DROP CONSTRAINT profiles_role_check; ALTER TABLE public.profiles ADD CONSTRAINT profiles_role_check CHECK (role IN ('admin', 'organizer', 'author', 'reviewer', 'participant')); UPDATE public.profiles SET role = 'participant' WHERE id = '00000000-0000-0000-0000-000000000005';");
+  const removeParticipant = await read('../migrations/20261009_remove_participant_role.sql');
+  await db.exec(removeParticipant);
+  await db.exec(removeParticipant);
+  const adminGrantedReviewers = await read('../migrations/20261009_admin_granted_reviewers.sql');
+  await db.exec(adminGrantedReviewers);
+  await db.exec(adminGrantedReviewers);
+  assert.equal((await db.query("SELECT role FROM public.profiles WHERE id = '00000000-0000-0000-0000-000000000005'")).rows[0].role, 'author');
+  assert.equal((await db.query("SELECT column_default FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'profiles' AND column_name = 'role'")).rows[0].column_default, "'author'::text");
+  await assert.rejects(db.exec("UPDATE public.profiles SET role = 'participant' WHERE id = '00000000-0000-0000-0000-000000000005'"));
   assert.equal((await db.query("SELECT count(*)::int AS count FROM profiles WHERE role = 'reviewer' AND id::text LIKE '10000000-0000-0000-0000-%'")).rows[0].count, 10);
   assert.equal((await db.query("SELECT count(*)::int AS count FROM auth.users WHERE email LIKE 'reviewer%@confmanager.com'")).rows[0].count, 11);
   assert.equal((await db.query("SELECT count(*)::int AS count FROM auth.identities WHERE provider = 'email' AND provider_id LIKE 'reviewer%@confmanager.com'")).rows[0].count, 11);
@@ -76,4 +86,7 @@ test('SQL bundles initialize and upgrade twice without shifting conference times
   assert.equal(new Set(introductions.map((row) => row.description)).size, 12);
   assert.ok(introductions.every((row) => !/hội thảo mẫu/i.test(row.description)));
   assert.equal((await db.query('SELECT count(*)::int AS count FROM conferences WHERE field IS NULL')).rows[0].count, 0);
+  await db.exec("INSERT INTO auth.users(id, raw_user_meta_data) VALUES ('f0000000-0000-0000-0000-000000000099', '{\"full_name\":\"Self-selected reviewer\",\"role\":\"reviewer\"}')");
+  assert.equal((await db.query("SELECT role FROM public.profiles WHERE id = 'f0000000-0000-0000-0000-000000000099'")).rows[0].role, 'author');
+  await assert.rejects(db.exec("INSERT INTO public.reviews(paper_id, reviewer_id) VALUES ('20000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000099')"));
 });

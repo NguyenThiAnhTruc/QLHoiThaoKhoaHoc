@@ -185,12 +185,12 @@ BEGIN;
 
 ALTER TABLE public.profiles DROP CONSTRAINT IF EXISTS profiles_role_check;
 ALTER TABLE public.profiles ADD CONSTRAINT profiles_role_check
-  CHECK (role IN ('admin', 'organizer', 'reviewer', 'author', 'participant'));
+  CHECK (role IN ('admin', 'organizer', 'reviewer', 'author'));
 
 CREATE OR REPLACE FUNCTION public.require_author_reviewer()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM public.profiles WHERE id = NEW.reviewer_id AND role IN ('author', 'reviewer')) THEN
+  IF NOT EXISTS (SELECT 1 FROM public.profiles WHERE id = NEW.reviewer_id AND role = 'reviewer') THEN
     RAISE EXCEPTION 'Reviewer account is not eligible';
   END IF;
   RETURN NEW;
@@ -343,8 +343,8 @@ BEGIN
   INTO demo_reviewer_id
   FROM public.profiles
   WHERE id <> author_id
-    AND role IN ('reviewer', 'author')
-  ORDER BY CASE role WHEN 'reviewer' THEN 0 ELSE 1 END, created_at, id
+    AND role = 'reviewer'
+  ORDER BY created_at, id
   LIMIT 1;
 
   INSERT INTO public.conferences (

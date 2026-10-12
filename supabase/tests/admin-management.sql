@@ -9,8 +9,8 @@ END $$;
 INSERT INTO auth.users(id, raw_user_meta_data) VALUES
  ('94000000-0000-0000-0000-000000000001', '{"full_name":"Admin test"}'),
  ('94000000-0000-0000-0000-000000000002', '{"full_name":"Owner test"}'),
- ('94000000-0000-0000-0000-000000000003', '{"full_name":"Participant test"}');
-UPDATE public.profiles SET role = CASE right(id::text, 1) WHEN '1' THEN 'admin' WHEN '2' THEN 'organizer' ELSE 'participant' END
+ ('94000000-0000-0000-0000-000000000003', '{"full_name":"Author test"}');
+UPDATE public.profiles SET role = CASE right(id::text, 1) WHEN '1' THEN 'admin' WHEN '2' THEN 'organizer' ELSE 'author' END
 WHERE id IN ('94000000-0000-0000-0000-000000000001', '94000000-0000-0000-0000-000000000002', '94000000-0000-0000-0000-000000000003');
 INSERT INTO public.conferences(id, title, start_date, end_date, organizer_id) VALUES
  ('95000000-0000-0000-0000-000000000001', 'Transfer test', current_date, current_date + 1, '94000000-0000-0000-0000-000000000001');

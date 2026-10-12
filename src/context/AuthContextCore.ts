@@ -14,7 +14,7 @@ export interface AuthContextValue {
     email: string,
     password: string,
     fullName: string,
-    role: UserRole,
+    role?: UserRole,
   ) => Promise<{ error: string | null }>;
   resetPassword: (email: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
