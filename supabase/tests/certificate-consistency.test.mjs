@@ -1,0 +1,27 @@
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import test from 'node:test';
+import {PGlite} from '@electric-sql/pglite';
+test('certificate bulk issuance is atomic, idempotent and rejects cancelled events',async(t)=>{
+  const db=new PGlite();t.after(()=>db.close());
+  const read=(p)=>readFile(new URL(p,import.meta.url),'utf8');
+  await db.exec(await read('./local_bootstrap.sql'));
+  await db.exec((await read('../migrations/initialize_production.sql')).replace('CREATE EXTENSION IF NOT EXISTS pgcrypto;',''));
+  for(const file of ['conference_updates.sql','20260927_paper_status_consistency.sql','20261008_complete_workflows.sql','20261008_seminar_experience.sql','20261009_certificate_consistency.sql','20261009_certificate_consistency.sql']) await db.exec(await read('../migrations/'+file));
+  const organizer='a0000000-0000-0000-0000-000000000001', attendee='a0000000-0000-0000-0000-000000000002', outsider='a0000000-0000-0000-0000-000000000003', conf='b0000000-0000-0000-0000-000000000001';
+  await db.query('INSERT INTO auth.users(id) VALUES($1),($2),($3)',[organizer,attendee,outsider]);
+  await db.query("UPDATE profiles SET role='organizer' WHERE id=$1",[organizer]);
+  await db.query("INSERT INTO conferences(id,title,organizer_id,start_date,end_date,status) VALUES($1,'Test',$2,now()-interval '2 days',now()-interval '1 day','completed')",[conf,organizer]);
+  await db.query('INSERT INTO participants(conference_id,user_id,attended) VALUES($1,$2,true),($1,$3,false)',[conf,attendee,outsider]);
+  await db.query("SELECT set_config('request.jwt.claim.sub',$1,false)",[organizer]);
+  await db.exec('SET ROLE authenticated');
+  const issue=(ids)=>db.query("SELECT issue_certificates_bulk($1,'attendance',$2) AS count",[conf,ids]);
+  await assert.rejects(issue([attendee,outsider]),/chưa đủ điều kiện/);
+  assert.equal((await db.query('SELECT count(*)::int AS count FROM certificates')).rows[0].count,0);
+  await db.query("UPDATE conferences SET status='cancelled' WHERE id=$1",[conf]);
+  await assert.rejects(issue([attendee]));
+  await db.query("UPDATE conferences SET status='completed' WHERE id=$1",[conf]);
+  assert.equal((await issue([attendee,attendee])).rows[0].count,1);
+  assert.equal((await issue([attendee])).rows[0].count,0);
+  await assert.rejects(db.query("SELECT issue_certificates_bulk($1,'presentation',$2)",[conf,[attendee]]),/bài báo/);
+});

@@ -1,4 +1,5 @@
-﻿import { SpeakerPage } from "@/pages/SpeakerPage";
+import { CertificateVerificationPage } from "@/pages/CertificateVerificationPage";
+import { SpeakerPage } from "@/pages/SpeakerPage";
 import { ResourcesPage } from "@/pages/ResourcesPage";
 import { SessionDetailPage } from "@/pages/SessionDetailPage";
 import { AuthProvider } from "@/context/AuthContext";
@@ -30,7 +31,7 @@ import { UsersPage } from "@/pages/UsersPage";
 import { MessagesPage } from "@/pages/MessagesPage";
 
 function AppContent() {
-  const { session, profile, loading, authEvent } = useAuth();
+  const { session, profile, loading, profileError, refreshProfile, signOut, authEvent } = useAuth();
   const { route, navigate, formRoute, closeForm } = useRouter();
   const [formSubmitting, setFormSubmitting] = useState(false);
   const [pageVersion, setPageVersion] = useState(0);
@@ -107,6 +108,10 @@ function AppContent() {
     );
   }
 
+  if (!profile) {
+    return <div className="flex min-h-screen items-center justify-center bg-[#effaf7] p-6"><div className="max-w-lg rounded-xl bg-white p-6 shadow"><p role="alert">{profileError || 'Chưa tải được hồ sơ tài khoản.'}</p><div className="mt-4 flex gap-3"><button className="rounded-lg bg-teal-700 px-4 py-2 text-white" onClick={() => void refreshProfile()}>Thử lại</button><button className="rounded-lg border px-4 py-2" onClick={() => void signOut()}>Đăng xuất</button></div></div></div>;
+  }
+
   const pageMap: Record<string, React.ReactNode> = {
     dashboard:
       profile?.role === "participant" ? (
@@ -169,6 +174,8 @@ function AppContent() {
 }
 
 function App() {
+  const certificateToken=new URLSearchParams(window.location.search).get("certificate");
+  if(certificateToken!==null)return <CertificateVerificationPage token={certificateToken} />;
   return (
     <AuthProvider>
       <RouterProvider>

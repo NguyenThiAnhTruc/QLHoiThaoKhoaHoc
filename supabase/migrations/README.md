@@ -22,3 +22,16 @@ Không chạy lại file khởi tạo trên database đang sử dụng vì có p
 Các bản vá có ngày đã được gộp thành từng khối `BEGIN SECTION`/`END SECTION`. Giữ các dấu này để kiểm thử có thể đọc đúng khối SQL. Các file SQL trong `../tests/` chỉ phục vụ kiểm thử, không phải file triển khai.
 
 Để chỉ bổ sung hội thảo đa lĩnh vực, chạy riêng khối `multidisciplinary_demo` cuối file dữ liệu mẫu. Khối này thêm 12 hội thảo và 24 bài báo giả lập (2 bài/hội thảo), cập nhật phần giới thiệu hội thảo và tóm tắt bài báo đã có, không tạo trùng khi chạy lại. Bài báo mới có tiêu đề, tóm tắt và từ khóa, chưa đính kèm PDF.
+
+Sau các migration trên, chạy `20261009_certificate_consistency.sql`: chặn cấp cho hội thảo hủy, kiểm tra toàn bộ danh sách cấp tham dự trước khi ghi, chống cấp trùng và lưu thời lượng đo được. Chứng nhận báo cáo dùng RPC riêng theo từng bài.
+
+Database hiện tại chưa rõ đã chạy cập nhật nào: có thể chạy toàn bộ `upgrade_existing_database.sql` trong SQL Editor. File gộp các migration nền và mới theo thứ tự, trong một giao dịch, không chứa initializer hoặc dữ liệu demo; cuối file yêu cầu PostgREST tải lại schema.
+
+
+Bản sửa độ tin cậy: áp dụng `20261010_email_delivery_safety.sql` sau các migration trước đó, hoặc chạy lại bundle `upgrade_existing_database.sql`. Migration bổ sung trạng thái email cần đối chiếu và quyền dọn file chưa được sử dụng. Sau đó triển khai lại function `post-seminar`; không cập nhật worker trước schema.
+
+
+Dọn file bỏ dở: xem [UPLOAD_CLEANUP.md](../UPLOAD_CLEANUP.md). Migration `20261010_orphan_upload_cleanup.sql` đã nằm trong bundle nâng cấp; cần deploy function `upload-cleanup` riêng để thực hiện dọn file.
+
+
+Nâng cấp local mới: áp dụng `20261011_local_improvements.sql` sau bundle đến 20261010 để bật QR tra cứu, thu hồi chứng nhận, phiên bản phản biện và bảo vệ nhật ký. Kiểm thử tài khoản và vận hành: [OPERATIONS.md](../../docs/OPERATIONS.md).

@@ -23,8 +23,9 @@ export function NotificationBell() {
 
   const loadNotifications = useCallback(async () => {
     const currentRequest = ++requestId.current;
-    if (!userId) { setNotifications([]); setUnreadCount(0); return; }
+    if (!userId) { setNotifications([]); setUnreadCount(0); setLoading(false); return; }
     setLoading(true);
+    try {
     const [itemsResult, unreadResult] = await Promise.all([
       supabase.from('notifications').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(8),
       supabase.from('notifications').select('*', { count: 'exact', head: true }).eq('user_id', userId).is('read_at', null),
@@ -37,7 +38,11 @@ export function NotificationBell() {
       setNotifications((itemsResult.data ?? []) as NotificationItem[]);
       setUnreadCount(unreadResult.count ?? 0);
     }
-    setLoading(false);
+    } catch {
+      if(currentRequest===requestId.current)setError("Không thể tải thông báo. Vui lòng thử lại.");
+    } finally {
+      if(currentRequest===requestId.current)setLoading(false);
+    }
   }, [userId]);
 
   useEffect(() => {

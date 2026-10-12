@@ -9,6 +9,8 @@ import { Badge } from "@/components/ui/Badge";
 import { showToast } from "@/components/ui/toastStore";
 import type { Conference, ConferenceFund, FeePayment } from "@/types";
 
+import { confirmInsert, insertAttempt, type InsertAttempt } from "@/lib/retryableInsert";
+
 const labels = { pending: "Chờ duyệt", accepted: "Đã chấp nhận", rejected: "Từ chối" };
 const validAmount = (value: string, zero = false) => value.trim() !== "" && Number.isFinite(Number(value)) && (zero ? Number(value) >= 0 : Number(value) > 0);
 const mimeExtensions: Record<string, string> = { "application/pdf": "pdf", "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
@@ -33,6 +35,8 @@ export function FundingPage() {
   const [loading, setLoading] = useState(false);
   const [reviewingId, setReviewingId] = useState("");
   const requestId = useRef(0);
+  const fundAttempt = useRef<InsertAttempt | null>(null);
+  const paymentAttempt = useRef<InsertAttempt | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -69,8 +73,11 @@ export function FundingPage() {
     if (!conferenceId || !canManage(conferenceId) || !fundName.trim() || !validAmount(fundAmount, true) || busy) return;
     setBusy(true);
     try {
-      const { error } = await supabase.from("conference_funds").insert({ conference_id: conferenceId, name: fundName.trim(), amount: Number(fundAmount), description: fundDescription.trim(), created_by: profile?.id });
-      if (error) throw error;
+      const payload = { conference_id: conferenceId, name: fundName.trim(), amount: Number(fundAmount), description: fundDescription.trim(), created_by: profile?.id };
+      fundAttempt.current = insertAttempt(fundAttempt.current, payload);
+      const id = fundAttempt.current.id;
+      await confirmInsert(() => supabase.from("conference_funds").insert({...payload,id}), () => supabase.from("conference_funds").select("id").eq("id",id).maybeSingle());
+      fundAttempt.current = null;
       showToast("success", "Đã tạo quỹ phí"); setFundName(""); setFundAmount(""); setFundDescription(""); await loadData(conferenceId);
     } catch { showToast("error", "Không thể tạo quỹ phí"); }
     finally { setBusy(false); }
@@ -92,10 +99,19 @@ export function FundingPage() {
         }
         proof = uploadedProof.current.path;
       }
-      const { error } = await supabase.from("fee_payments").insert({ fund_id: fundId, conference_id: conferenceId, payer_id: profile.id, amount: Number(amount), purpose: purpose.trim(), proof_url: proof });
-      if (error) throw error;
+      const payload = { fund_id: fundId, conference_id: conferenceId, payer_id: profile.id, amount: Number(amount), purpose: purpose.trim(), proof_url: proof };
+      paymentAttempt.current = insertAttempt(paymentAttempt.current, payload);
+      const id = paymentAttempt.current.id;
+      await confirmInsert(() => supabase.from("fee_payments").insert({...payload,id}), () => supabase.from("fee_payments").select("id").eq("id",id).maybeSingle());
+      paymentAttempt.current = null;
       showToast("success", "Đã gửi minh chứng"); setAmount(""); setPurpose(""); setProofUrl(""); setProofFile(null); uploadedProof.current = null; await loadData(conferenceId);
-    } catch { showToast("error", "Không thể gửi minh chứng. Vui lòng thử lại."); }
+    } catch(error) {
+      if(error && typeof error==="object" && "message" in error && String(error.message).includes("Upload expired"))uploadedProof.current=null;
+      if(uploadedProof.current){
+        const cleanup=await supabase.storage.from("fee-proofs").remove([uploadedProof.current.path]).catch(()=>null);
+        if(cleanup?.data?.length)uploadedProof.current=null;
+      }
+      showToast("error", "Không thể gửi minh chứng. Vui lòng thử lại."); }
     finally { setBusy(false); }
   }
   async function reviewPayment(payment: FeePayment, status: "accepted" | "rejected") {

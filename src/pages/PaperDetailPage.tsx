@@ -210,9 +210,9 @@ export function PaperDetailPage() {
     const { error } = await supabase
       .from("papers")
       .update({ status: newStatus })
-      .eq("id", paperId);
+      .eq("id", paperId).eq("updated_at", paper!.updated_at).select("id").single();
     if (error) {
-      showToast("error", "Cập nhật trạng thái thất bại");
+      showToast("error", "Không thể đổi trạng thái. Bài có thể đã được cập nhật; tải lại trước khi quyết định.");
     } else {
       showToast("success", "Đã cập nhật trạng thái");
       load();
@@ -331,7 +331,7 @@ export function PaperDetailPage() {
     }
     setSavingReview(true);
     try {
-    const { error } = await supabase
+    let reviewWrite = supabase
       .from("reviews")
       .update({
         score: reviewScore,
@@ -344,9 +344,11 @@ export function PaperDetailPage() {
         status: complete ? "completed" : "in_progress",
         completed_at: complete ? new Date().toISOString() : null,
       })
-      .eq("id", editingReview.id);
+      .eq("id", editingReview.id).eq("status",editingReview.status);
+    if(editingReview.revision!==undefined)reviewWrite=reviewWrite.eq("revision",editingReview.revision);
+    const {error}=await reviewWrite.select("id").single();
     if (error) {
-      showToast("error", "Lưu đánh giá thất bại");
+      showToast("error", "Không thể lưu đánh giá. Dữ liệu có thể đã thay đổi; tải lại bài trước khi tiếp tục.");
     } else {
       showToast("success", "Đã lưu đánh giá");
       setReviewModalOpen(false);

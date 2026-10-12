@@ -1,3 +1,4 @@
+import { exportExcel } from "@/lib/exportExcel";
 import { useEffect, useRef, useState } from "react";
 import {
   Users,
@@ -19,8 +20,12 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { Input, Select } from "@/components/ui/Field";
 import { showToast } from "@/components/ui/toastStore";
+import { fetchAll, fetchByIds } from '@/lib/fetchAll';
 import { ROLE_LABELS } from "@/lib/constants";
 import type { Conference, Participant } from "@/types";
+
+import { Pagination } from "@/components/ui/Pagination";
+import { listPage, normalizeSearch } from "@/lib/listPage";
 
 export function ParticipantsPage() {
   const { profile } = useAuth();
@@ -29,6 +34,8 @@ export function ParticipantsPage() {
   const [conferences, setConferences] = useState<Conference[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [page,setPage]=useState(1);
+
   const [confFilter, setConfFilter] = useState("all");
   const [attendanceFilter, setAttendanceFilter] = useState<
     "all" | "attended" | "pending"
@@ -64,10 +71,10 @@ export function ParticipantsPage() {
 
   async function load() {
     setLoading(true);
-    const { data, error } = await supabase
+    const { data, error } = await fetchAll((from, to) => supabase
       .from("participants")
-      .select("*, user:profile_directory!participants_user_id_fkey(*), conference:conferences(*)")
-      .order("registered_at", { ascending: false });
+      .select("*, user:profile_directory!participants_user_id_fkey(*), conference:conferences(*)", { count: "exact" })
+      .order("registered_at", { ascending: false }).order("id").range(from, to));
     if (error) {
       showToast("error", "Không thể tải danh sách người tham dự");
     } else {
@@ -76,7 +83,7 @@ export function ParticipantsPage() {
         ...new Set(rows.map((participant) => participant.checked_in_by).filter(Boolean)),
       ];
       const { data: actors } = actorIds.length
-        ? await supabase.from("profile_directory").select("id, full_name").in("id", actorIds)
+        ? await fetchByIds(actorIds as string[],(ids,from,to)=>supabase.from("profile_directory").select("id, full_name",{count:"exact"}).in("id",ids).order("id").range(from,to))
         : { data: [] };
       const actorNames = new Map((actors ?? []).map((actor) => [actor.id, actor.full_name]));
       setParticipants(rows.map((participant) => ({
@@ -91,7 +98,9 @@ export function ParticipantsPage() {
 
   async function handleToggleAttendance(part: Participant) {
     if (!canManage(part.conference_id)) return;
+    if(updatingId)return;
     setUpdatingId(part.id);
+    try {
     const { error } = await supabase
       .from("participants")
       .update({
@@ -99,14 +108,15 @@ export function ParticipantsPage() {
         checked_in_at: !part.attended ? new Date().toISOString() : null,
         checked_in_by: !part.attended ? (profile?.id ?? null) : null,
       })
-      .eq("id", part.id);
+      .eq("id", part.id).eq("attended",part.attended).select("id").single();
     if (error) {
-      showToast("error", "Cập nhật điểm danh thất bại");
+      showToast("error", "Không thể cập nhật. Trạng thái điểm danh có thể đã thay đổi; tải lại danh sách.");
     } else {
       showToast("success", "Đã cập nhật điểm danh");
       load();
     }
-    setUpdatingId(null);
+    } catch { showToast("error","Không thể cập nhật điểm danh. Kiểm tra kết nối và tải lại danh sách."); }
+    finally { setUpdatingId(null); }
   }
 
   async function handleCheckInByCode(value = attendanceCode) {
@@ -120,7 +130,9 @@ export function ParticipantsPage() {
       return;
     }
 
+    if(checkingIn)return;
     setCheckingIn(true);
+    try {
     const { data, error } = await supabase
       .from("participants")
       .select("*, user:profile_directory!participants_user_id_fkey(*), conference:conferences(*)")
@@ -157,7 +169,7 @@ export function ParticipantsPage() {
         checked_in_at: new Date().toISOString(),
         checked_in_by: profile?.id ?? null,
       })
-      .eq("id", participant.id);
+      .eq("id", participant.id).eq("attended",false).select("id").single();
 
     if (updateError) {
       showToast("error", "Điểm danh thất bại: " + updateError.message);
@@ -169,7 +181,8 @@ export function ParticipantsPage() {
       setAttendanceCode("");
       load();
     }
-    setCheckingIn(false);
+    } catch { showToast("error","Chưa xác nhận kết quả điểm danh. Tải lại danh sách trước khi thử lại."); }
+    finally {setCheckingIn(false);}
   }
 
   checkInHandler.current = handleCheckInByCode;
@@ -215,7 +228,7 @@ export function ParticipantsPage() {
     const matchesSearch =
       !search ||
       [p.user?.full_name, p.user?.email, p.attendance_code].some((value) =>
-        (value ?? "").toLowerCase().includes(search.toLowerCase()),
+        normalizeSearch(value ?? "").includes(normalizeSearch(search)),
       );
     const matchesConf = confFilter === "all" || p.conference_id === confFilter;
     const matchesAttendance =
@@ -224,6 +237,8 @@ export function ParticipantsPage() {
     return matchesSearch && matchesConf && matchesAttendance;
   });
 
+  useEffect(()=>setPage(1),[search,confFilter,attendanceFilter]);
+  const pagination=listPage(filtered,page,25);
   const attendedCount = filtered.filter((p) => p.attended).length;
 
   return (
@@ -235,6 +250,7 @@ export function ParticipantsPage() {
             Quản lý đăng ký và điểm danh
           </p>
         </div>
+        <Button variant="outline" disabled={loading || filtered.length===0} onClick={()=>exportExcel("nguoi-tham-du",["Họ tên","Email","Hội thảo","Điểm danh","Ngày đăng ký"],filtered.map(p=>[p.user?.full_name ?? "",p.user?.email ?? "",p.conference?.title ?? "",p.attended?"Đã điểm danh":"Chưa điểm danh",new Date(p.registered_at).toLocaleDateString("vi-VN")]))}>Xuất Excel</Button>
         <Button variant="outline" onClick={exportCSV}>
           <Download className="h-4 w-4" /> Xuất CSV
         </Button>
@@ -355,7 +371,7 @@ export function ParticipantsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filtered.map((part) => (
+                {pagination.items.map((part) => (
                   <tr key={part.id} className="hover:bg-slate-50">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2.5">
@@ -430,6 +446,8 @@ export function ParticipantsPage() {
           </div>
         </Card>
       )}
+
+      {!loading && <Pagination {...pagination} onChange={setPage} />}
 
       {/* QR Modal */}
       <Modal

@@ -1,5 +1,5 @@
 import { DateInput } from "@/components/ui/DateInput";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, Save, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "@/context/useRouter";
@@ -12,6 +12,8 @@ import {
 } from "@/lib/constants";
 import type { ConferenceStatus, EventFormat } from "@/types";
 import { CONFERENCE_FIELDS, getConferenceTopics, isConferenceField } from "@/lib/conferenceFields";
+
+import { confirmInsert, insertAttempt, type InsertAttempt } from "@/lib/retryableInsert";
 
 const CONFERENCE_FORM_STATUSES = ALL_CONFERENCE_STATUSES.filter(
   (conferenceStatus) => conferenceStatus !== "draft",
@@ -64,6 +66,8 @@ export function ConferenceFormPage({
   const [contactPhone, setContactPhone] = useState("");
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(isEdit);
+  const createAttempt = useRef<InsertAttempt | null>(null);
+  const uploadedCover = useRef<{file:File;url:string} | null>(null);
 
   useEffect(() => {
     onSubmittingChange?.(loading);
@@ -71,12 +75,16 @@ export function ConferenceFormPage({
 
   useEffect(() => {
     if (!isEdit) return;
+    let cancelled = false;
+    setFetching(true);
     (async () => {
+      try {
       const { data, error } = await supabase
         .from("conferences")
         .select("*")
         .eq("id", editId)
         .maybeSingle();
+      if (cancelled) return;
       if (error || !data) {
         showToast("error", "Không thể tải thông tin hội thảo");
         navigate("conferences");
@@ -105,8 +113,16 @@ export function ConferenceFormPage({
       setContactName(data.contact_name ?? "");
       setContactEmail(data.contact_email ?? "");
       setContactPhone(data.contact_phone ?? "");
-      setFetching(false);
+      } catch {
+        if (!cancelled) {
+          showToast("error", "Không thể tải thông tin hội thảo. Vui lòng thử lại.");
+          navigate("conferences");
+        }
+      } finally {
+        if (!cancelled) setFetching(false);
+      }
     })();
+    return () => { cancelled = true; };
   }, [editId, isEdit, navigate]);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -132,7 +148,9 @@ export function ConferenceFormPage({
     setLoading(true);
     try {
     let uploadedCoverUrl = coverImageUrl.trim();
-    if (coverImageFile) {
+    if (coverImageFile && uploadedCover.current?.file === coverImageFile) {
+      uploadedCoverUrl = uploadedCover.current.url;
+    } else if (coverImageFile) {
       if (!coverImageFile.type.startsWith("image/")) {
         showToast("error", "Ảnh bìa không đúng định dạng");
         setLoading(false);
@@ -157,6 +175,7 @@ export function ConferenceFormPage({
       uploadedCoverUrl = supabase.storage
         .from("conference-images")
         .getPublicUrl(path).data.publicUrl;
+      uploadedCover.current = {file:coverImageFile,url:uploadedCoverUrl};
     }
     const payload = {
       title: title.trim(),
@@ -188,7 +207,7 @@ export function ConferenceFormPage({
       const { error } = await supabase
         .from("conferences")
         .update(payload)
-        .eq("id", editId);
+        .eq("id", editId).select("id").single();
       if (error) {
         showToast("error", "Cập nhật thất bại: " + error.message);
       } else {
@@ -197,18 +216,16 @@ export function ConferenceFormPage({
         else navigate("conference-detail", { id: editId });
       }
     } else {
-      const { data, error } = await supabase
-        .from("conferences")
-        .insert(payload)
-        .select()
-        .single();
-      if (error) {
-        showToast("error", "Tạo hội thảo thất bại: " + error.message);
-      } else {
-        showToast("success", "Tạo hội thảo thành công");
-        if (onSaved) onSaved();
-        else navigate("conference-detail", { id: data.id });
-      }
+      createAttempt.current = insertAttempt(createAttempt.current,payload);
+      const id = createAttempt.current.id;
+      await confirmInsert(
+        () => supabase.from("conferences").insert({...payload,id}),
+        () => supabase.from("conferences").select("id").eq("id",id).maybeSingle(),
+      );
+      createAttempt.current = null;
+      showToast("success", "Tạo hội thảo thành công");
+      if (onSaved) onSaved();
+      else navigate("conference-detail", { id });
     }
     } catch {
       showToast("error", "Không thể lưu hội thảo. Vui lòng thử lại.");

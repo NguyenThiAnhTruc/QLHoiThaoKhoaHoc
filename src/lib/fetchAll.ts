@@ -5,7 +5,9 @@ export async function fetchAll<T>(query: (from: number, to: number) => PromiseLi
 }>) {
   const rows: T[] = [];
   while (true) {
-    const result = await query(rows.length, rows.length + 499);
+    let result;
+    try { result = await query(rows.length, rows.length + 499); }
+    catch { return {data:null,error:{message:'Không thể tải dữ liệu. Kiểm tra kết nối và thử lại.'}}; }
     if (result.error) return { data: null, error: result.error };
     const page = result.data ?? [];
     rows.push(...page);
@@ -18,4 +20,16 @@ export async function fetchAll<T>(query: (from: number, to: number) => PromiseLi
     }
   }
   return { data: rows, error: null };
+}
+
+// Keep IN filters small enough for HTTP URLs, while respecting API row caps.
+export async function fetchByIds<T>(ids: string[],query:(ids:string[],from:number,to:number)=>PromiseLike<{data:T[]|null;error:{message:string}|null;count:number|null}>){
+  const unique=[...new Set(ids)],rows:T[]=[];
+  for(let start=0;start<unique.length;start+=100){
+    const batch=unique.slice(start,start+100);
+    const result=await fetchAll((from,to)=>query(batch,from,to));
+    if(result.error)return {data:null,error:result.error};
+    rows.push(...(result.data ?? []));
+  }
+  return {data:rows,error:null};
 }

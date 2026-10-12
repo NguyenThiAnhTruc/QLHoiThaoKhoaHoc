@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { fetchAll, fetchByIds } from "@/lib/fetchAll";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ClipboardCheck, Star, Clock, User } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/useAuth";
@@ -22,29 +23,35 @@ export function ReviewsPage() {
   const { navigate } = useRouter();
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
+  const loadRequest=useRef(0);
   const [tab, setTab] = useState<"assigned" | "in_progress" | "declined" | "completed" | "all">("all");
 
   const load = useCallback(async () => {
     if (!profile) return;
+    const request=++loadRequest.current;
     setLoading(true);
+    const {data,error}=await fetchAll((from,to)=>{
     let query = supabase
       .from("reviews")
       .select(
-        "*, reviewer:profile_directory(*)",
+        "*, reviewer:profile_directory(*)",{count:"exact"}
       )
-      .order("assigned_at", { ascending: false });
+      .order("assigned_at", { ascending: false }).order("id").range(from,to);
     if (profile.role === 'author' || profile.role === 'reviewer') query = query.eq('reviewer_id', profile.id);
 
-    const { data, error } = await query;
+    return query;
+    });
+    if(request!==loadRequest.current)return;
     if (error) {
       showToast("error", "Không thể tải danh sách phản biện");
     } else {
       const rows = (data ?? []) as unknown as Review[];
       const paperIds = [...new Set(rows.map((review) => review.paper_id))];
       const result = paperIds.length
-        ? await supabase.rpc('read_papers').in('id', paperIds).select('*, conference:conferences(*)')
+        ? await fetchByIds(paperIds,(ids,from,to)=>supabase.rpc('read_papers',{}, {count:'exact'}).in('id', ids).select('*, conference:conferences(*)').order('id').range(from,to))
         : { data: [], error: null };
-      if (result.error) showToast('error', 'Không thể tải bài báo được phân công');
+      if(request!==loadRequest.current)return;
+      if (result.error) {showToast('error', 'Không thể tải bài báo được phân công');setReviews([]);setLoading(false);return;}
       const papers = new Map((result.data ?? []).map((paper) => [paper.id, paper]));
       setReviews(rows.map((review) => ({ ...review, paper: papers.get(review.paper_id) })) as Review[]);
     }

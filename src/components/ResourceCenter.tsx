@@ -8,6 +8,8 @@ import { Input, Select } from "@/components/ui/Field";
 import { showToast } from "@/components/ui/toastStore";
 import type { Conference, Session } from "@/types";
 
+import { confirmInsert, insertAttempt, type InsertAttempt } from "@/lib/retryableInsert";
+
 type Visibility="public"|"registered"|"checked_in";
 interface Resource { id:string;conference_id:string;session_id:string|null;uploader_id:string;title:string;kind:string;visibility:Visibility;file_path:string;version_number:number;created_at:string; allowed?:boolean }
 const visibilityLabels:Record<Visibility,string>={public:"Công khai",registered:"Đã đăng ký",checked_in:"Đã điểm danh"};
@@ -17,6 +19,8 @@ const formats:Record<string,string>={pdf:"application/pdf",ppt:"application/vnd.
 export function ResourceCenter({ conferenceId: suppliedConference, sessionId: suppliedSession }: {conferenceId?:string;sessionId?:string}) {
   const { profile }=useAuth(); const { canManage }=useConferenceAccess();
   const generation=useRef(0);
+  const attempt=useRef<InsertAttempt|null>(null);
+  const uploadedFile=useRef<{file:File;conference:string;path:string}|null>(null);
   const [conferenceId,setConferenceId]=useState(suppliedConference ?? "");
   const [conferences,setConferences]=useState<Conference[]>([]); const [sessions,setSessions]=useState<Session[]>([]);
   const [resources,setResources]=useState<Resource[]>([]); const [loading,setLoading]=useState(false);const [error,setError]=useState("");
@@ -52,11 +56,24 @@ export function ResourceCenter({ conferenceId: suppliedConference, sessionId: su
     if(kind==="slides" && !sessionId){showToast("error","Chọn phiên báo cáo cho slide");return;}
     setBusy(true);
     try{
-      const path=`${profile.id}/${conferenceId}/${crypto.randomUUID()}.${extension}`;
-      const uploaded=await supabase.storage.from("conference-resources").upload(path,file,{upsert:false,contentType:formats[extension]});if(uploaded.error)throw uploaded.error;
-      const saved=await supabase.from("conference_resources").insert({conference_id:conferenceId,session_id:sessionId || null,uploader_id:profile.id,title:title.trim(),kind,visibility,file_path:path});if(saved.error)throw saved.error;
+      if(uploadedFile.current?.file!==file || uploadedFile.current.conference!==conferenceId){
+        const path=`${profile.id}/${conferenceId}/${crypto.randomUUID()}.${extension}`;
+        const uploaded=await supabase.storage.from("conference-resources").upload(path,file,{upsert:false,contentType:formats[extension]});if(uploaded.error)throw uploaded.error;
+        uploadedFile.current={file,conference:conferenceId,path};
+      }
+      const payload={conference_id:conferenceId,session_id:sessionId || null,uploader_id:profile.id,title:title.trim(),kind,visibility,file_path:uploadedFile.current.path};
+      attempt.current=insertAttempt(attempt.current,payload);
+      const id=attempt.current.id;
+      await confirmInsert(()=>supabase.from("conference_resources").insert({...payload,id}),()=>supabase.from("conference_resources").select("id").eq("id",id).maybeSingle());
+      attempt.current=null;uploadedFile.current=null;
       showToast("success","Đã lưu phiên bản tài liệu mới");setFile(null);setTitle("");setUploadKey((value)=>value+1);await load();
-    }catch{showToast("error","Không thể lưu tài liệu. Kiểm tra quyền hoặc hạn tải lên.");}finally{setBusy(false);}
+    }catch(error){
+      if(error && typeof error==="object" && "message" in error && String(error.message).includes("Upload expired"))uploadedFile.current=null;
+      if(uploadedFile.current){
+        const cleanup=await supabase.storage.from("conference-resources").remove([uploadedFile.current.path]).catch(()=>null);
+        if(cleanup?.data?.length)uploadedFile.current=null;
+      }
+      showToast("error","Không thể lưu tài liệu. Kiểm tra quyền hoặc hạn tải lên.");}finally{setBusy(false);}
   }
   async function download(resource:Resource){
     const {data,error}=await supabase.storage.from("conference-resources").createSignedUrl(resource.file_path,60,{download:true});
