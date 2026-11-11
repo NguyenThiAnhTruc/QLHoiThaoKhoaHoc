@@ -45,7 +45,7 @@ test('combined upgrade matches the versioned migrations',async()=>{
  const combined=await read('../migrations/upgrade_existing_database.sql');
  const incremental=await read('../migrations/20261011_local_improvements.sql');
  for(const name of ['20261011_certificate_verification.sql','20261011_review_revision.sql','20261011_audit_integrity.sql'])assert.ok(incremental.includes((await read('../migrations/'+name)).replace(/^\s*(BEGIN|COMMIT);\s*$/gm,'')),name+' in incremental upgrade');
- for(const name of ['conference_updates.sql','20260927_paper_status_consistency.sql','20260927_disable_blind_review.sql','20261008_complete_workflows.sql','20261008_seminar_experience.sql','20261009_certificate_consistency.sql','20261010_email_delivery_safety.sql','20261010_orphan_upload_cleanup.sql','20261011_certificate_verification.sql','20261011_review_revision.sql','20261011_audit_integrity.sql']){
+ for(const name of ['conference_updates.sql','20260927_paper_status_consistency.sql','20260927_disable_blind_review.sql','20261008_complete_workflows.sql','20261008_seminar_experience.sql','20261009_certificate_consistency.sql','20261010_email_delivery_safety.sql','20261010_orphan_upload_cleanup.sql','20261011_certificate_verification.sql','20261011_review_revision.sql','20261011_audit_integrity.sql','20261105_fee_payment_integrity.sql','20261105_session_roles_and_types.sql']){
   const source=(await read('../migrations/'+name)).replace(/^\s*(BEGIN|COMMIT);\s*$/gm,'');
   assert.ok(combined.includes(source),name+' is up to date in the deployment bundle');
  }

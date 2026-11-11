@@ -22,7 +22,7 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { Input, Textarea, Select } from "@/components/ui/Field";
 import { showToast } from "@/components/ui/toastStore";
-import type { Conference, ConferenceCommittee, Session, Paper, Profile } from "@/types";
+import type { Conference, ConferenceCommittee, ConferenceTopic, Session, Paper, Profile } from "@/types";
 
 export function SessionsPage() {
   const { profile } = useAuth();
@@ -31,7 +31,6 @@ export function SessionsPage() {
   const [filterConference, setFilterConference] = useState("");
   const [personalOnly, setPersonalOnly] = useState(route.params.mine === "true");
   const [ownPaperIds, setOwnPaperIds] = useState<Set<string>>(new Set());
-  const [parentSessionId, setParentSessionId] = useState("");
   const [conferences, setConferences] = useState<Conference[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -46,9 +45,11 @@ export function SessionsPage() {
   const [room, setRoom] = useState("");
   const [tags, setTags] = useState("");
   const [resourceDeadline,setResourceDeadline]=useState("");
-  const [difficulty,setDifficulty] = useState<"general"|"beginner"|"advanced">("general");
+  const [sessionType, setSessionType] = useState<Session["session_type"]>("reporting");
   const [committeeId, setCommitteeId] = useState("");
   const [committees, setCommittees] = useState<ConferenceCommittee[]>([]);
+  const [topics, setTopics] = useState<ConferenceTopic[]>([]);
+  const [committeeTopicId, setCommitteeTopicId] = useState("");
   const [committeeName, setCommitteeName] = useState("");
   const [committeeRoom, setCommitteeRoom] = useState("");
   const [committeeSaving, setCommitteeSaving] = useState(false);
@@ -56,6 +57,10 @@ export function SessionsPage() {
   const [paperId, setPaperId] = useState("");
   const [papers, setPapers] = useState<Paper[]>([]);
   const [speakers, setSpeakers] = useState<Profile[]>([]);
+  const [paperSpeakers, setPaperSpeakers] = useState<Record<string, Profile[]>>({});
+  const [staffByConference, setStaffByConference] = useState<Record<string, Profile[]>>({});
+  const [chairId, setChairId] = useState("");
+  const [secretaryId, setSecretaryId] = useState("");
   const [saving, setSaving] = useState(false);
   const paperRequest = useRef(0);
   const loadRequest=useRef(0);
@@ -93,17 +98,35 @@ export function SessionsPage() {
           setConferences((confs as Conference[]).filter((conference) => ids.has(conference.id)));
         }
       }
-      const { data: profs } = await supabase
-        .from("profile_directory")
-        .select("*")
-        .in("role", ["admin", "organizer", "author", "reviewer", "participant"])
-        .order("full_name");
-      if (profs && !cancelled) setSpeakers(profs as unknown as Profile[]);
       const { data: committeeRows } = await supabase
         .from("conference_committees")
         .select("*")
         .order("name");
       if (committeeRows && !cancelled) setCommittees(committeeRows as ConferenceCommittee[]);
+      const { data: topicRows } = await supabase
+        .from("conference_topics")
+        .select("*")
+        .order("name");
+      if (topicRows && !cancelled) setTopics(topicRows as ConferenceTopic[]);
+
+      const { data: staffRows } = await supabase
+        .from("conference_staff")
+        .select("conference_id,user_id,user:profile_directory(*)");
+      const organizerIds = (confs ?? []).map((conference) => conference.organizer_id).filter(Boolean);
+      const { data: organizerRows } = organizerIds.length
+        ? await supabase.from("profile_directory").select("*").in("id", organizerIds)
+        : { data: [] };
+      const eligible: Record<string, Profile[]> = {};
+      for (const conference of confs ?? []) {
+        const members = (staffRows ?? [])
+          .filter((row) => row.conference_id === conference.id)
+          .map((row) => row.user as unknown as Profile)
+          .filter(Boolean);
+        const owner = (organizerRows ?? []).find((row) => row.id === conference.organizer_id) as unknown as Profile | undefined;
+        eligible[conference.id] = [...new Map([...members, ...(owner ? [owner] : [])].map((person) => [person.id, person])).values()]
+          .sort((left, right) => left.full_name.localeCompare(right.full_name));
+      }
+      if (!cancelled) setStaffByConference(eligible);
     })();
     return () => { cancelled = true; };
   }, [profile?.id, profile?.role]);
@@ -113,7 +136,7 @@ export function SessionsPage() {
     setLoading(true);
     const { data, error } = await fetchAll((from,to)=>supabase
       .from("sessions")
-      .select("*, conference:conferences(*), speaker:profile_directory(*), committee:conference_committees(*)",{count:"exact"})
+      .select("*, conference:conferences(*), speaker:profile_directory(*), chair:profile_directory!sessions_chair_id_fkey(*), secretary:profile_directory!sessions_secretary_id_fkey(*), committee:conference_committees(*)",{count:"exact"})
       .order("start_time", { ascending: true }).order("id").range(from,to));
     if(request!==loadRequest.current)return;
     if (error) {
@@ -124,22 +147,48 @@ export function SessionsPage() {
     setLoading(false);
   }
 
-  async function loadPapers(confId: string) {
+  async function loadPapers(confId: string, selectedCommitteeId = committeeId) {
     const request = ++paperRequest.current;
     setPapers([]);
     if (!confId) {
       setPapers([]);
       return;
     }
-    const { data, error } = await fetchAll((from,to)=>supabase
-      .rpc('read_papers',{}, {count:'exact'})
+    const committee = committees.find((item) => item.id === selectedCommitteeId);
+    let query = supabase
+      .from("papers")
+      .select("*, paper_topics!inner(topic_id)", { count: "exact" })
       .eq("conference_id", confId)
-      .eq("status", "accepted")
-      .select("*")
-      .order("title").order("id").range(from,to));
+      .eq("status", "accepted");
+    if (committee?.topic_id) query = query.eq("paper_topics.topic_id", committee.topic_id);
+    const { data, error } = await fetchAll((from,to)=>query.order("title").order("id").range(from,to));
     if (request !== paperRequest.current) return;
     if (error) showToast("error", "Không thể tải bài báo của hội thảo");
-    else setPapers((data ?? []) as unknown as Paper[]);
+    else {
+      const accepted = (data ?? []) as unknown as Paper[];
+      setPapers(accepted);
+      const paperIds = accepted.map((paper) => paper.id);
+      if (!paperIds.length) {
+        setSpeakers([]);
+        setPaperSpeakers({});
+        return;
+      }
+      const { data: authorRows, error: authorError } = await supabase
+        .from("paper_authors")
+        .select("paper_id,user_id,user:profile_directory(*)")
+        .in("paper_id", paperIds);
+      if (authorError) showToast("error", "Không thể tải tác giả của bài báo");
+      else {
+        const byPaper: Record<string, Profile[]> = {};
+        for (const row of authorRows ?? []) {
+          const person = row.user as unknown as Profile;
+          if (!person) continue;
+          byPaper[row.paper_id] = [...(byPaper[row.paper_id] ?? []), person];
+        }
+        setPaperSpeakers(byPaper);
+        setSpeakers([...new Map((authorRows ?? []).map((row) => [row.user_id, row.user as unknown as Profile])).values()].filter(Boolean) as Profile[]);
+      }
+    }
   }
 
   function openCreate() {
@@ -151,11 +200,13 @@ export function SessionsPage() {
     setDescription("");
     setStartTime("");
     setEndTime("");
-    setRoom(""); setTags(""); setDifficulty("general"); setResourceDeadline("");
+    setRoom(""); setTags(""); setSessionType("reporting"); setResourceDeadline("");
     setCommitteeId("");
-    setParentSessionId("");
+    setCommitteeTopicId("");
     setSpeakerId("");
     setPaperId("");
+    setChairId("");
+    setSecretaryId("");
     setPapers([]);
     setModalOpen(true);
   }
@@ -168,12 +219,14 @@ export function SessionsPage() {
     setDescription(session.description ?? "");
     setStartTime(toLocalDateTimeInput(session.start_time));
     setEndTime(toLocalDateTimeInput(session.end_time));
-    setRoom(session.room ?? ""); setTags((session.tags ?? []).join(", ")); setDifficulty(session.difficulty ?? "general"); setResourceDeadline(session.resource_deadline ? toLocalDateTimeInput(session.resource_deadline) : "");
+    setRoom(session.room ?? ""); setTags((session.tags ?? []).join(", ")); setSessionType(session.session_type ?? "reporting"); setResourceDeadline(session.resource_deadline ? toLocalDateTimeInput(session.resource_deadline) : "");
     setCommitteeId(session.committee_id ?? "");
-    setParentSessionId(session.parent_session_id ?? "");
+    setCommitteeTopicId(session.committee?.topic_id ?? "");
     setSpeakerId(session.speaker_id ?? "");
     setPaperId(session.paper_id ?? "");
-    loadPapers(session.conference_id);
+    setChairId(session.chair_id ?? "");
+    setSecretaryId(session.secretary_id ?? "");
+    loadPapers(session.conference_id, session.committee_id ?? "");
     setModalOpen(true);
   }
 
@@ -185,6 +238,10 @@ export function SessionsPage() {
     }
     if (!conferenceId || !title.trim() || !startTime || !endTime) {
       showToast("error", "Vui lòng điền đầy đủ thông tin");
+      return;
+    }
+    if (sessionType === "reporting" && !committeeId) {
+      showToast("error", "Phiên báo cáo phải chọn tiểu ban");
       return;
     }
     if (new Date(endTime) <= new Date(startTime)) {
@@ -200,12 +257,14 @@ export function SessionsPage() {
       start_time: new Date(startTime).toISOString(),
       end_time: new Date(endTime).toISOString(),
       room: room.trim(),
-      tags: [...new Set(tags.split(",").map((tag)=>tag.trim()).filter(Boolean))], difficulty,
+      tags: [...new Set(tags.split(",").map((tag)=>tag.trim()).filter(Boolean))],
       resource_deadline: resourceDeadline ? new Date(resourceDeadline).toISOString() : null,
-      committee_id: committeeId || null,
-      parent_session_id: parentSessionId || null,
+      session_type: sessionType,
+      committee_id: sessionType === "reporting" ? committeeId || null : null,
       speaker_id: speakerId || null,
-      paper_id: paperId || null,
+      paper_id: sessionType === "reporting" ? paperId || null : null,
+      chair_id: chairId || null,
+      secretary_id: secretaryId || null,
     };
 
     if (editingSession) {
@@ -238,18 +297,20 @@ export function SessionsPage() {
 
   async function handleCreateCommittee(event: React.FormEvent) {
     event.preventDefault();
-    if (!conferenceId || !committeeName.trim() || !managedIds.has(conferenceId) || committeeSaving) return;
+    if (!conferenceId || !committeeName.trim() || !committeeTopicId || !managedIds.has(conferenceId) || committeeSaving) return;
     setCommitteeSaving(true);
     const { data, error } = await supabase.from("conference_committees").insert({
       conference_id: conferenceId,
       name: committeeName.trim(),
       room: committeeRoom.trim(),
+      topic_id: committeeTopicId || null,
     }).select().single();
     if (error) showToast("error", "Tạo tiểu ban thất bại: " + error.message);
     else {
       setCommittees((current) => [...current, data as ConferenceCommittee].sort((left, right) => left.name.localeCompare(right.name)));
       setCommitteeName("");
       setCommitteeRoom("");
+      setCommitteeTopicId("");
       showToast("success", "Đã tạo tiểu ban");
     }
     setCommitteeSaving(false);
@@ -309,13 +370,17 @@ export function SessionsPage() {
       {canEdit && <Card className="p-4">
         <h2 className="font-semibold text-slate-900">Tiểu ban và phòng song song</h2>
         <p className="mt-1 text-sm text-slate-500">Tạo nhiều tiểu ban cho cùng hội thảo; mỗi tiểu ban có thể diễn ra ở một phòng riêng.</p>
-        <form onSubmit={handleCreateCommittee} className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+        <form onSubmit={handleCreateCommittee} className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
           <Select aria-label="Hội thảo của tiểu ban" value={conferenceId} onChange={(event) => setConferenceId(event.target.value)}>
             <option value="">Chọn hội thảo</option>
             {conferences.map((conference) => <option key={conference.id} value={conference.id}>{conference.title}</option>)}
           </Select>
           <Input aria-label="Tên tiểu ban" placeholder="Tên tiểu ban" value={committeeName} onChange={(event) => setCommitteeName(event.target.value)} />
           <div className="flex gap-2"><Input aria-label="Phòng tiểu ban" placeholder="Phòng" value={committeeRoom} onChange={(event) => setCommitteeRoom(event.target.value)} /><Button type="submit" disabled={committeeSaving}><Plus className="h-4 w-4" /> Thêm</Button></div>
+          <Select aria-label="Chủ đề của tiểu ban" required value={committeeTopicId} onChange={(event) => setCommitteeTopicId(event.target.value)}>
+            <option value="">Chọn chủ đề</option>
+            {topics.filter((topic) => topic.conference_id === conferenceId).map((topic) => <option key={topic.id} value={topic.id}>{topic.name}</option>)}
+          </Select>
         </form>
         {committees.filter((committee) => committee.conference_id === conferenceId).length > 0 && <div className="mt-4 flex flex-wrap gap-2">{committees.filter((committee) => committee.conference_id === conferenceId).map((committee) => <span key={committee.id} className="rounded-lg bg-teal-50 px-3 py-2 text-sm text-teal-800">{committee.name}{committee.room ? ` · ${committee.room}` : ""}</span>)}</div>}
       </Card>}
@@ -420,8 +485,11 @@ export function SessionsPage() {
               setConferenceId(e.target.value);
               setPaperId("");
               setCommitteeId("");
-              setParentSessionId("");
-              loadPapers(e.target.value);
+              setCommitteeTopicId("");
+              setSpeakerId("");
+              setChairId("");
+              setSecretaryId("");
+              loadPapers(e.target.value, "");
             }}
           >
             <option value="">Chọn hội thảo</option>
@@ -463,27 +531,56 @@ export function SessionsPage() {
           />
           <DateInput label="Hạn tải slide (mặc định: giờ bắt đầu phiên)" type="datetime-local" value={resourceDeadline} onValueChange={setResourceDeadline} />
           <Input label="Chủ đề / tags (cách nhau bởi dấu phẩy)" value={tags} onChange={(event)=>setTags(event.target.value)} />
-          <Select label="Mức độ workshop" value={difficulty} onChange={(event)=>setDifficulty(event.target.value as typeof difficulty)}><option value="general">Chung</option><option value="beginner">Cơ bản</option><option value="advanced">Nâng cao</option></Select>
-          <Select label="Phiên chung (cho báo cáo song song)" value={parentSessionId} onChange={(event) => setParentSessionId(event.target.value)}>
-            <option value="">Phiên độc lập / phiên chung</option>
-            {sessions.filter((session) => session.conference_id === conferenceId && !session.parent_session_id && session.id !== editingSession?.id).map((session) => <option key={session.id} value={session.id}>{session.title}</option>)}
+          <Select label="Loại phiên *" value={sessionType} onChange={(event) => {
+            const nextType = event.target.value as Session["session_type"];
+            setSessionType(nextType);
+            if (nextType !== "reporting") {
+              setCommitteeId("");
+              setCommitteeTopicId("");
+              setPaperId("");
+              setSpeakerId("");
+            }
+          }}>
+            <option value="opening">Phiên khai mạc</option>
+            <option value="reporting">Phiên báo cáo</option>
+            <option value="closing">Phiên bế mạc</option>
           </Select>
-          <Select label="Tiểu ban" value={committeeId} onChange={(event) => {
+          {sessionType === "reporting" && <><Select label="Tiểu ban *" value={committeeId} onChange={(event) => {
             const nextId = event.target.value;
             setCommitteeId(nextId);
             const committee = committees.find((item) => item.id === nextId);
+            setCommitteeTopicId(committee?.topic_id ?? "");
             if (committee?.room) setRoom(committee.room);
+            setPaperId("");
+            setSpeakerId("");
+            void loadPapers(conferenceId, nextId);
           }}>
-            <option value="">Không thuộc tiểu ban</option>
+            <option value="">Chọn tiểu ban</option>
             {committees.filter((committee) => committee.conference_id === conferenceId).map((committee) => <option key={committee.id} value={committee.id}>{committee.name}{committee.room ? ` · ${committee.room}` : ""}</option>)}
           </Select>
           <Select
-            label="Diễn giả"
+            label="Chủ trì"
+            value={chairId}
+            onChange={(event) => setChairId(event.target.value)}
+          >
+            <option value="">-- Chưa chọn --</option>
+            {(staffByConference[conferenceId] ?? []).map((person) => <option key={person.id} value={person.id}>{person.full_name}</option>)}
+          </Select>
+          <Select
+            label="Thư ký"
+            value={secretaryId}
+            onChange={(event) => setSecretaryId(event.target.value)}
+          >
+            <option value="">-- Chưa chọn --</option>
+            {(staffByConference[conferenceId] ?? []).map((person) => <option key={person.id} value={person.id}>{person.full_name}</option>)}
+          </Select>
+          <Select
+            label="Báo cáo viên"
             value={speakerId}
             onChange={(e) => setSpeakerId(e.target.value)}
           >
             <option value="">-- Không chọn --</option>
-            {speakers.map((s) => (
+            {(paperId ? paperSpeakers[paperId] ?? [] : speakers).map((s) => (
               <option key={s.id} value={s.id}>
                 {s.full_name}
               </option>
@@ -501,6 +598,7 @@ export function SessionsPage() {
               </option>
             ))}
           </Select>
+          </>}
           <div className="flex justify-end gap-3">
             <Button variant="outline" onClick={() => setModalOpen(false)}>
               Hủy

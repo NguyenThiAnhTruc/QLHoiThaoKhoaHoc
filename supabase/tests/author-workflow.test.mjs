@@ -37,7 +37,9 @@ test('author workflow database integration', async (t) => {
   const paper = '30000000-0000-0000-0000-000000000001';
   const failedPaper = '30000000-0000-0000-0000-000000000002';
   await db.exec(`INSERT INTO auth.users(id) VALUES ('${owner}'),('${coauthor}'),('${reviewer}'),('${organizer}');
-    UPDATE public.profiles SET role = 'author'; UPDATE public.profiles SET role = 'organizer' WHERE id = '${organizer}';
+    UPDATE public.profiles SET role = 'author';
+    UPDATE public.profiles SET role = 'reviewer' WHERE id IN ('${coauthor}', '${reviewer}');
+    UPDATE public.profiles SET role = 'organizer' WHERE id = '${organizer}';
     INSERT INTO public.conferences(id,title,start_date,end_date,status,organizer_id,submission_deadline,camera_ready_deadline)
     VALUES ('${conference}','Test conference',current_date+10,current_date+11,'open','${organizer}',now()+interval '1 day',now()+interval '2 days');
     INSERT INTO storage.objects(bucket_id,name,owner) VALUES ('paper-files','${owner}/v1.pdf','${owner}');`);

@@ -25,9 +25,15 @@ export function SessionDetailPage(){
   const load=useCallback(async()=>{
     setLoading(true);setError("");
     try{
-      const result=await supabase.from("sessions").select("*,conference:conferences(*),speaker:profile_directory(*),paper:papers(*),committee:conference_committees(*)").eq("id",id).maybeSingle();
+      const result=await supabase.from("sessions").select("*,conference:conferences(*),speaker:profile_directory(*),committee:conference_committees(*)").eq("id",id).maybeSingle();
       if(result.error||!result.data)throw new Error("Không tìm thấy phiên hoặc bạn chưa có quyền xem lịch này");
-      setSession(result.data as Session);
+      const session=result.data as Session;
+      if (session.paper_id) {
+        const paperResult=await supabase.from("papers").select("*").eq("id",session.paper_id).maybeSingle();
+        if (paperResult.error) throw new Error(`Không thể tải thông tin bài báo: ${paperResult.error.message}`);
+        session.paper=paperResult.data;
+      }
+      setSession(session);
       const [attendanceResult,feedbackResult]=await Promise.all([supabase.from("session_attendance").select("checked_in_at,checked_out_at").eq("session_id",id).eq("user_id",profile!.id).maybeSingle(),supabase.from("session_feedback").select("session_id").eq("session_id",id).eq("user_id",profile!.id).maybeSingle()]);
       if(attendanceResult.error||feedbackResult.error)throw new Error("Không thể tải điểm danh/khảo sát. Kiểm tra bản cập nhật hệ thống.");
       setAttendance(attendanceResult.data);setFeedbackSent(!!feedbackResult.data);

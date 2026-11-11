@@ -3,7 +3,6 @@ import { createContext } from "react";
 export type PageKey =
   | "dashboard"
   | "conferences"
-  | "topics"
   | "funding"
   | "speaker"
   | "resources"
@@ -17,7 +16,6 @@ export type PageKey =
   | "review-detail"
   | "sessions"
   | "session-form"
-  | "participants"
   | "certificates"
   | "messages"
   | "users"

@@ -13,7 +13,8 @@ import { Input, Select } from "@/components/ui/Field";
 import { showToast } from "@/components/ui/toastStore";
 import { CERTIFICATE_TYPE_LABELS, ROLE_LABELS } from "@/lib/constants";
 import { fetchAll } from '@/lib/fetchAll';
-import { renderCertificate } from '@/lib/certificatePrint';
+import { certificateOrganization, renderCertificate } from '@/lib/certificatePrint';
+import defaultSealAsset from '@/assets/con-dau.png';
 import { PostSeminarStatus } from '@/components/PostSeminarStatus';
 import type { Certificate, Paper, UserRole } from "@/types";
 
@@ -51,6 +52,12 @@ export function CertificatesPage() {
     "attendance",
   );
   const [issuing, setIssuing] = useState(false);
+  const [confirming, setConfirming] = useState<Certificate | null>(null);
+  const [confirmName, setConfirmName] = useState("");
+  const [confirmOrganization, setConfirmOrganization] = useState("");
+  const [reviewing, setReviewing] = useState<Certificate | null>(null);
+  const [reviewNote, setReviewNote] = useState("");
+  const [reviewBusy, setReviewBusy] = useState(false);
 
   const [revoking,setRevoking]=useState<Certificate|null>(null);
   const [revokeReason,setRevokeReason]=useState("");
@@ -71,12 +78,23 @@ export function CertificatesPage() {
     setLoading(true);
     const { data, error } = await fetchAll((from, to) => supabase
       .from("certificates")
-      .select("*, user:profile_directory(*), conference:conferences(*), paper:papers(*)", { count: "exact" })
+      .select("*, user:profile_directory(*), conference:conferences(*)", { count: "exact" })
       .order("issued_at", { ascending: false }).order("id").range(from, to));
     if (error) {
       showToast("error", "Không thể tải danh sách chứng nhận");
     } else {
-      setCertificates((data ?? []) as unknown as Certificate[]);
+      const rows = (data ?? []) as unknown as Certificate[];
+      const paperIds = [...new Set(rows.map((certificate) => certificate.paper_id).filter((id): id is string => Boolean(id)))];
+      if (paperIds.length) {
+        const papersResult = await supabase.from("papers").select("*").in("id", paperIds);
+        if (papersResult.error) {
+          showToast("error", "Không thể tải thông tin bài báo trên chứng nhận");
+        } else {
+          const papersById = new Map((papersResult.data ?? []).map((paper) => [paper.id, paper]));
+          rows.forEach((certificate) => { certificate.paper = papersById.get(certificate.paper_id ?? ""); });
+        }
+      }
+      setCertificates(rows);
     }
     setLoading(false);
   }, [profile?.id]);
@@ -145,12 +163,79 @@ export function CertificatesPage() {
     }
   }
 
+  function openConfirmation(cert: Certificate) {
+    setConfirming(cert);
+    setConfirmName(cert.confirmed_name || cert.user?.full_name || profile?.full_name || "");
+    setConfirmOrganization(
+      cert.confirmed_organization || cert.user?.organization || profile?.organization || "",
+    );
+  }
+
+  async function submitConfirmation() {
+    if (!confirming) return;
+    if (confirmName.trim().length < 2) {
+      showToast("error", "Vui lòng nhập họ tên hợp lệ");
+      return;
+    }
+    const { error } = await supabase.rpc("submit_certificate_confirmation", {
+      target_certificate_id: confirming.id,
+      recipient_name: confirmName.trim(),
+      recipient_organization: confirmOrganization.trim(),
+    });
+    if (error) {
+      showToast("error", error.message || "Không thể gửi xác nhận");
+      return;
+    }
+    showToast("success", "Đã gửi thông tin chứng nhận cho Ban tổ chức");
+    setConfirming(null);
+    await load();
+  }
+
+  async function reviewCertificate(approve: boolean) {
+    if (!reviewing || reviewBusy) return;
+    if (!approve && reviewNote.trim().length < 3) {
+      showToast("error", "Vui lòng nhập lý do yêu cầu chỉnh sửa");
+      return;
+    }
+    setReviewBusy(true);
+    const { error } = await supabase.rpc(
+      approve ? "approve_certificate_confirmation" : "request_certificate_changes",
+      approve
+        ? { target_certificate_id: reviewing.id, approval_note: reviewNote.trim() }
+        : { target_certificate_id: reviewing.id, change_note: reviewNote.trim() },
+    );
+    if (error) {
+      showToast("error", error.message || "Không thể xử lý chứng nhận");
+    } else {
+      showToast("success", approve ? "Đã duyệt và phát hành chứng nhận" : "Đã yêu cầu tác giả chỉnh sửa");
+      setReviewing(null);
+      await load();
+    }
+    setReviewBusy(false);
+  }
+
   async function downloadCertificate(cert: Certificate) {
+    if (cert.workflow_status && cert.workflow_status !== "issued") {
+      showToast("error", "Chứng nhận chưa được Ban tổ chức phát hành");
+      return;
+    }
     if(cert.revoked_at){showToast("error","Chứng nhận đã thu hồi");return;}
-    if (cert.pdf_path && !seal && !cert.verification_token) {
-      const {data,error}=await supabase.storage.from("certificate-pdfs").createSignedUrl(cert.pdf_path,60,{download:true});
-      if(error || !data){showToast("error","Không thể tải PDF chứng nhận");return;}
-      const link=document.createElement("a");link.href=data.signedUrl;link.target="_blank";link.rel="noopener noreferrer";link.click();return;
+    let printableSeal = seal;
+    if (!printableSeal) {
+      try {
+        const response = await fetch(new URL(defaultSealAsset, window.location.origin));
+        if (!response.ok) throw new Error(`Không tải được ảnh con dấu (${response.status})`);
+        const blob = await response.blob();
+        printableSeal = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () => reject(new Error("Không đọc được ảnh con dấu"));
+          reader.readAsDataURL(blob);
+        });
+      } catch {
+        showToast("error", "Không tải được ảnh con dấu mặc định");
+        return;
+      }
     }
     const certWindow = window.open("", "_blank");
     if (!certWindow) { showToast("error", "Trình duyệt chặn cửa sổ in. Vui lòng cho phép cửa sổ bật lên và thử lại."); return; }
@@ -160,15 +245,16 @@ export function CertificatesPage() {
     catch{certWindow.close();showToast("error","Không tạo được mã QR tra cứu");return;}
     const conf = cert.conference;
     const user = cert.user;
-    certWindow.onload = () => { certWindow.focus(); certWindow.print(); };
+    certWindow.document.open();
     certWindow.document.write(renderCertificate({
-      name: user?.full_name ?? '', organization: user?.organization,
+      name: user?.full_name ?? '', organization: certificateOrganization(user?.organization),
       title: conf?.title ?? '', paper: cert.paper?.title, type: cert.certificate_type,
       start: conf?.start_date ?? cert.issued_at, end: conf?.end_date ?? cert.issued_at,
       issued: cert.issued_at, location: conf?.location, number: cert.certificate_number,
-      minutes: cert.attendance_minutes, seal, verificationQr, verificationUrl,
+      seal: printableSeal, verificationQr, verificationUrl,
     }));
     certWindow.document.close();
+    certWindow.onload = () => { certWindow.focus(); certWindow.print(); };
   }
 
   return (
@@ -252,12 +338,35 @@ export function CertificatesPage() {
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={Boolean(cert.revoked_at)}
+                    disabled={Boolean(cert.revoked_at) || Boolean(cert.workflow_status && cert.workflow_status !== "issued")}
                     onClick={() => downloadCertificate(cert)}
                   >
-                    <Download className="h-3.5 w-3.5" /> In
+                    <Download className="h-3.5 w-3.5" /> {cert.workflow_status && cert.workflow_status !== "issued" ? "Chưa phát hành" : "In"}
                   </Button>
                 </div>
+                {cert.workflow_status && cert.workflow_status !== "issued" && (
+                  <div className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+                    <p className="font-semibold">
+                      {cert.workflow_status === "submitted"
+                        ? "Đã gửi, chờ Ban tổ chức duyệt"
+                        : cert.workflow_status === "needs_changes"
+                          ? "Cần cập nhật lại thông tin"
+                          : "Chờ tác giả xác nhận thông tin"}
+                    </p>
+                    {cert.review_notes && <p className="mt-1">{cert.review_notes}</p>}
+                    {!canManage(cert.conference_id) &&
+                      ["pending_confirmation", "needs_changes"].includes(cert.workflow_status) && (
+                        <Button size="sm" className="mt-2" onClick={() => openConfirmation(cert)}>
+                          Xác nhận và gửi
+                        </Button>
+                      )}
+                    {canManage(cert.conference_id) && cert.workflow_status === "submitted" && (
+                      <Button size="sm" className="mt-2" onClick={() => { setReviewNote(""); setReviewing(cert); }}>
+                        Duyệt hồ sơ
+                      </Button>
+                    )}
+                  </div>
+                )}
                 {cert.revoked_at && <p className="text-sm font-semibold text-rose-700">Đã thu hồi · {cert.revocation_reason}</p>}
                 {cert.verification_token && <a className="block text-sm text-teal-700 underline" href={`/?certificate=${encodeURIComponent(cert.verification_token)}`} target="_blank" rel="noopener noreferrer">Tra cứu chứng nhận</a>}
                 {cert.verification_token && !cert.revoked_at && canManage(cert.conference_id) && <Button size="sm" variant="outline" onClick={()=>{setRevokeReason("");setRevoking(cert);}}>Thu hồi</Button>}
@@ -273,6 +382,31 @@ export function CertificatesPage() {
       {!loading && <Pagination {...pagination} onChange={setPage} />}
 
       <Modal open={Boolean(revoking)} onClose={()=>{if(!revokeBusy)setRevoking(null);}} title="Thu hồi chứng nhận"><div className="space-y-4"><p>Thu hồi {revoking?.certificate_number}. Chứng nhận vẫn được lưu để đối chiếu và không thể khôi phục.</p><Input label="Lý do thu hồi" minLength={5} maxLength={1000} value={revokeReason} disabled={revokeBusy} onChange={event=>setRevokeReason(event.target.value)} /><Button disabled={revokeBusy || revokeReason.trim().length<5} onClick={()=>void revoke()}>{revokeBusy?"Đang thu hồi...":"Xác nhận thu hồi"}</Button></div></Modal>
+      <Modal open={Boolean(confirming)} onClose={() => setConfirming(null)} title="Xác nhận thông tin chứng nhận">
+        <div className="space-y-4">
+          <p className="text-sm text-slate-600">Kiểm tra chính xác họ tên và đơn vị. Thông tin này sẽ được dùng để phát hành chứng nhận.</p>
+          <Input label="Họ và tên trên chứng nhận" value={confirmName} onChange={(event) => setConfirmName(event.target.value)} />
+          <Input label="Đơn vị công tác" value={confirmOrganization} onChange={(event) => setConfirmOrganization(event.target.value)} />
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setConfirming(null)}>Hủy</Button>
+            <Button onClick={() => void submitConfirmation()}>Gửi cho Ban tổ chức</Button>
+          </div>
+        </div>
+      </Modal>
+      <Modal open={Boolean(reviewing)} onClose={() => { if (!reviewBusy) setReviewing(null); }} title="Duyệt chứng nhận">
+        <div className="space-y-4">
+          <p className="text-sm text-slate-600">Kiểm tra thông tin tác giả đã xác nhận trước khi phát hành.</p>
+          <div className="rounded-lg bg-slate-50 p-3 text-sm">
+            <p><strong>Họ tên:</strong> {reviewing?.confirmed_name}</p>
+            <p><strong>Đơn vị:</strong> {reviewing?.confirmed_organization || "Không có"}</p>
+          </div>
+          <Input label="Ghi chú" placeholder="Ghi chú duyệt hoặc lý do yêu cầu chỉnh sửa" value={reviewNote} onChange={(event) => setReviewNote(event.target.value)} />
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" disabled={reviewBusy} onClick={() => void reviewCertificate(false)}>Yêu cầu chỉnh sửa</Button>
+            <Button disabled={reviewBusy} onClick={() => void reviewCertificate(true)}>Duyệt và phát hành</Button>
+          </div>
+        </div>
+      </Modal>
       <Modal
         open={issueModalOpen}
         onClose={() => { if (!issuing) setIssueModalOpen(false); }}

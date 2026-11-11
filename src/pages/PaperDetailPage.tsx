@@ -448,7 +448,7 @@ export function PaperDetailPage() {
             <div>
               <h3 className="font-semibold text-slate-900">
                 {paper.status === "accepted"
-                  ? "Bản hoàn thiện (camera-ready)"
+                  ? "Bản hoàn thiện"
                   : "Chỉnh sửa bài báo"}
               </h3>
               <p className="mt-1 text-sm text-slate-500">

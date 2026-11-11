@@ -2174,5 +2174,161 @@ REVOKE ALL ON FUNCTION public.write_audit_log(text,text,uuid,jsonb) FROM PUBLIC,
 GRANT EXECUTE ON FUNCTION public.write_audit_log(text,text,uuid,jsonb) TO service_role;
 NOTIFY pgrst,'reload schema';
 
+
+-- SOURCE: 20261105_fee_payment_integrity.sql
+-- Keep fee payment reviews one-way and prevent direct API updates from
+-- reopening or changing an already reviewed payment.
+CREATE OR REPLACE FUNCTION public.validate_fee_payment()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF auth.uid() IS NOT NULL AND NEW.payer_id <> auth.uid() THEN
+      RAISE EXCEPTION 'Người nộp không hợp lệ';
+    END IF;
+    IF NEW.status <> 'pending' OR NEW.reviewed_by IS NOT NULL OR NEW.reviewed_at IS NOT NULL THEN
+      RAISE EXCEPTION 'Khoản nộp mới phải chờ duyệt';
+    END IF;
+  ELSE
+    IF OLD.status <> 'pending' OR NEW.status NOT IN ('accepted', 'rejected') THEN
+      RAISE EXCEPTION 'Khoản nộp chỉ được chuyển từ chờ duyệt sang đã chấp nhận hoặc từ chối';
+    END IF;
+    IF NEW.fund_id <> OLD.fund_id
+      OR NEW.conference_id <> OLD.conference_id
+      OR NEW.payer_id <> OLD.payer_id
+      OR NEW.amount <> OLD.amount
+      OR NEW.proof_url <> OLD.proof_url
+      OR NEW.purpose <> OLD.purpose THEN
+      RAISE EXCEPTION 'Không thể thay đổi nội dung khoản nộp khi duyệt';
+    END IF;
+    NEW.reviewed_by := auth.uid();
+    NEW.reviewed_at := now();
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM public.conference_funds f
+    WHERE f.id = NEW.fund_id
+      AND f.conference_id = NEW.conference_id
+  ) THEN
+    RAISE EXCEPTION 'Quỹ phí không thuộc hội thảo';
+  END IF;
+  IF btrim(NEW.proof_url) = '' THEN
+    RAISE EXCEPTION 'Vui lòng nộp minh chứng';
+  END IF;
+  IF NEW.proof_url !~* '^https?://[^[:space:]]+$'
+    AND NOT EXISTS (
+      SELECT 1
+      FROM storage.objects o
+      WHERE o.bucket_id = 'fee-proofs'
+        AND o.name = NEW.proof_url
+        AND split_part(o.name, '/', 1) = NEW.payer_id::text
+        AND split_part(o.name, '/', 2) = NEW.conference_id::text
+    ) THEN
+    RAISE EXCEPTION 'Minh chứng không hợp lệ';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS validate_fee_payment ON public.fee_payments;
+CREATE TRIGGER validate_fee_payment
+BEFORE INSERT OR UPDATE ON public.fee_payments
+FOR EACH ROW EXECUTE FUNCTION public.validate_fee_payment();
+
+REVOKE ALL ON FUNCTION public.validate_fee_payment() FROM PUBLIC, anon, authenticated;
+NOTIFY pgrst, 'reload schema';
+
+-- SOURCE: 20261105_session_roles_and_types.sql
+-- Model conference sessions explicitly as opening, reporting, or closing sessions.
+ALTER TABLE public.conference_committees
+  ADD COLUMN IF NOT EXISTS topic_id uuid REFERENCES public.conference_topics(id) ON DELETE SET NULL;
+
+ALTER TABLE public.sessions
+  ADD COLUMN IF NOT EXISTS session_type text NOT NULL DEFAULT 'reporting'
+    CHECK (session_type IN ('opening', 'reporting', 'closing')),
+  ADD COLUMN IF NOT EXISTS chair_id uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS secretary_id uuid REFERENCES public.profiles(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_conference_committees_topic ON public.conference_committees(topic_id);
+
+CREATE OR REPLACE FUNCTION public.validate_session_assignment()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  committee_conference uuid;
+BEGIN
+  IF NEW.committee_id IS NOT NULL THEN
+    SELECT conference_id INTO committee_conference
+    FROM public.conference_committees
+    WHERE id = NEW.committee_id;
+    IF committee_conference IS NULL OR committee_conference <> NEW.conference_id THEN
+      RAISE EXCEPTION 'Tiểu ban không thuộc hội thảo';
+    END IF;
+  END IF;
+
+  IF NEW.session_type = 'reporting' AND NEW.committee_id IS NULL THEN
+    RAISE EXCEPTION 'Phiên báo cáo phải thuộc một tiểu ban';
+  END IF;
+  IF NEW.session_type <> 'reporting' AND (NEW.committee_id IS NOT NULL OR NEW.paper_id IS NOT NULL) THEN
+    RAISE EXCEPTION 'Chỉ phiên báo cáo mới có tiểu ban hoặc bài báo';
+  END IF;
+
+  IF NEW.paper_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1
+    FROM public.papers p
+    JOIN public.paper_topics pt ON pt.paper_id = p.id
+    JOIN public.conference_committees cc ON cc.id = NEW.committee_id
+    WHERE p.id = NEW.paper_id
+      AND p.conference_id = NEW.conference_id
+      AND p.status = 'accepted'
+      AND cc.topic_id = pt.topic_id
+  ) THEN
+    RAISE EXCEPTION 'Bài báo phải được chấp nhận và thuộc chủ đề của tiểu ban';
+  END IF;
+
+  IF NEW.speaker_id IS NOT NULL AND NEW.paper_id IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM public.paper_authors pa
+      WHERE pa.paper_id = NEW.paper_id AND pa.user_id = NEW.speaker_id
+    ) THEN
+    RAISE EXCEPTION 'Báo cáo viên phải là tác giả của bài báo';
+  END IF;
+
+  IF NEW.chair_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM public.conferences c
+    WHERE c.id = NEW.conference_id AND c.organizer_id = NEW.chair_id
+    UNION ALL
+    SELECT 1 FROM public.conference_staff cs
+    WHERE cs.conference_id = NEW.conference_id AND cs.user_id = NEW.chair_id
+  ) THEN
+    RAISE EXCEPTION 'Chủ trì phải thuộc ban tổ chức hoặc ban thư ký';
+  END IF;
+  IF NEW.secretary_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM public.conferences c
+    WHERE c.id = NEW.conference_id AND c.organizer_id = NEW.secretary_id
+    UNION ALL
+    SELECT 1 FROM public.conference_staff cs
+    WHERE cs.conference_id = NEW.conference_id AND cs.user_id = NEW.secretary_id
+  ) THEN
+    RAISE EXCEPTION 'Thư ký phải thuộc ban tổ chức hoặc ban thư ký';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS validate_session_assignment ON public.sessions;
+CREATE TRIGGER validate_session_assignment
+BEFORE INSERT OR UPDATE ON public.sessions
+FOR EACH ROW EXECUTE FUNCTION public.validate_session_assignment();
+
+NOTIFY pgrst, 'reload schema';
 NOTIFY pgrst, 'reload schema';
 COMMIT;

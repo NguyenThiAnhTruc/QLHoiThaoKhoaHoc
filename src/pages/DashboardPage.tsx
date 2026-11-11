@@ -241,7 +241,7 @@ export function DashboardPage() {
           makeDeadlineWarning(
             conference,
             "camera_ready_deadline",
-            "Hạn camera-ready",
+            "Hạn nộp bản hoàn thiện",
           ),
         ])
         .filter((item): item is DeadlineWarning => item !== null)

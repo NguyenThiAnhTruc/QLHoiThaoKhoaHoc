@@ -15,7 +15,6 @@ import { AuthPage } from "@/pages/AuthPage";
 import { ResetPasswordPage } from "@/pages/ResetPasswordPage";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { ConferencesPage } from "@/pages/ConferencesPage";
-import { TopicsPage } from "@/pages/TopicsPage";
 import { FundingPage } from "@/pages/FundingPage";
 import { ConferenceDetailPage } from "@/pages/ConferenceDetailPage";
 import { ConferenceFormPage } from "@/pages/ConferenceFormPage";
@@ -24,7 +23,6 @@ import { PaperDetailPage } from "@/pages/PaperDetailPage";
 import { PaperFormPage } from "@/pages/PaperFormPage";
 import { ReviewsPage } from "@/pages/ReviewsPage";
 import { SessionsPage } from "@/pages/SessionsPage";
-import { ParticipantsPage } from "@/pages/ParticipantsPage";
 import { CertificatesPage } from "@/pages/CertificatesPage";
 import { ProfilePage } from "@/pages/ProfilePage";
 import { UsersPage } from "@/pages/UsersPage";
@@ -124,7 +122,6 @@ function AppContent() {
         <RoleDashboard />
       ),
     conferences: <ConferencesPage />,
-    topics: <TopicsPage />,
     funding: <FundingPage />,
     speaker: <SpeakerPage />,
     resources: <ResourcesPage />,
@@ -137,7 +134,6 @@ function AppContent() {
     reviews:
       profile?.role === "participant" ? <ConferencesPage /> : <ReviewsPage />,
     sessions: <SessionsPage />,
-    participants: <ParticipantsPage />,
     certificates: <CertificatesPage />,
     messages: <MessagesPage />,
     users: <UsersPage />,

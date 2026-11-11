@@ -352,21 +352,6 @@ export function ConferenceFormPage({
           placeholder="Mô tả ngắn về hội thảo"
         />
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <DateInput
-            label="Ngày và giờ bắt đầu *"
-            type="datetime-local"
-            value={startDate}
-            onValueChange={setStartDate}
-           />
-          <DateInput
-            label="Ngày và giờ kết thúc *"
-            type="datetime-local"
-            value={endDate}
-            onValueChange={setEndDate}
-           />
-        </div>
-
         <Input
           label="Địa điểm"
           value={location}
@@ -423,62 +408,42 @@ export function ConferenceFormPage({
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <DateInput
-            label="Deadline nộp bài"
+            label="Hạn nộp bài *"
             type="datetime-local"
             value={submissionDeadline}
             onValueChange={setSubmissionDeadline}
            />
           <DateInput
             disabled={!reviewEnabled}
-            label="Deadline phản biện"
+            label="Hạn phản biện *"
             type="datetime-local"
             value={reviewDeadline}
             onValueChange={setReviewDeadline}
            />
           <DateInput
-            label="Deadline đăng ký tham dự"
+            label="Hạn nộp bản hoàn thiện *"
+            type="datetime-local"
+            value={cameraReadyDeadline}
+            onValueChange={setCameraReadyDeadline}
+           />
+          <DateInput
+            label="Thời hạn kết thúc đăng ký *"
             type="datetime-local"
             value={registrationDeadline}
             onValueChange={setRegistrationDeadline}
            />
           <DateInput
-            label="Deadline camera ready"
+            label="Ngày và giờ bắt đầu *"
             type="datetime-local"
-            value={cameraReadyDeadline}
-            onValueChange={setCameraReadyDeadline}
+            value={startDate}
+            onValueChange={setStartDate}
            />
-        </div>
-
-        <div className="space-y-3 rounded-lg border border-slate-200 p-4">
-          <label className="flex items-center gap-3"><input type="checkbox" checked={autoCertificates} onChange={(event)=>setAutoCertificates(event.target.checked)}/><span>Tự động cấp và gửi chứng nhận tham dự sau hội thảo</span></label>
-          <label className="flex items-center gap-3"><input type="checkbox" checked={autoSurveys} onChange={(event)=>setAutoSurveys(event.target.checked)}/><span>Tự động nhắc đánh giá sau từng phiên</span></label>
-          <label className="flex items-center gap-3"><input type="checkbox" checked={reviewEnabled} onChange={(event) => setReviewEnabled(event.target.checked)} /><span>Sử dụng phản biện bài báo</span></label>
-          <p className="text-xs text-slate-500">Khi tắt, ban tổ chức quyết định trực tiếp chấp nhận, từ chối hoặc yêu cầu sửa bài.</p>
-          <label className="flex items-center gap-3"><input type="checkbox" checked={requireAcceptedPaper} onChange={(event) => setRequireAcceptedPaper(event.target.checked)} /><span>Tác giả chỉ đăng ký tham dự sau khi có bài được chấp nhận</span></label>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3">
-            <input
-              type="checkbox"
-              checked={isFeatured}
-              onChange={(e) => setIsFeatured(e.target.checked)}
-              className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
-            />
-            <span className="text-sm font-medium text-slate-700">
-              Đánh dấu hội thảo nổi bật
-            </span>
-          </label>
-          <label className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3">
-            <input
-              type="checkbox"
-              checked={isSchedulePublic}
-              onChange={(e) => setIsSchedulePublic(e.target.checked)}
-              className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
-            />
-            <span className="text-sm font-medium text-slate-700">
-              Công khai lịch trình
-            </span>
-          </label>
+          <DateInput
+            label="Ngày và giờ kết thúc *"
+            type="datetime-local"
+            value={endDate}
+            onValueChange={setEndDate}
+           />
         </div>
 
         <div className="space-y-4 rounded-lg border border-slate-200 p-4">

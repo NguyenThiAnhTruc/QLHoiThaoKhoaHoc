@@ -69,7 +69,9 @@ try {
   await waitFor('!!document.querySelector("aside nav")','profile '+role);
   const menus=await evaluate('[...document.querySelectorAll("aside nav button")].map(b=>b.textContent.trim())');
   assert.equal(menus.includes('Tài khoản'),role==='admin');
-  assert.equal(menus.includes('Người tham dự'),['admin','organizer'].includes(role));
+  assert.equal(menus.includes('Chủ đề'),false);
+  assert.equal(menus.includes('Người tham dự'),false);
+  assert.equal(menus.includes('Điểm danh'),false);
   for(const label of menus){await evaluate('[...document.querySelectorAll("aside nav button")].find(b=>b.textContent.trim()==='+JSON.stringify(label)+')?.click()');await pause(250);assert.ok(await evaluate('document.querySelector("main").innerText.length>0'),'page '+label);}
   for(const [width,height] of [[1440,1000],[390,844]]){await c('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width===390});await pause(200);assert.ok(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),role+' layout fits viewport');}
   await c('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});

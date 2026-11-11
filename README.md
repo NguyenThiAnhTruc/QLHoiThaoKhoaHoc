@@ -23,7 +23,19 @@ Chạy tuần tự bằng Supabase SQL Editor:
 6. `supabase/migrations/20261008_seminar_experience.sql`.
 7. `supabase/migrations/20261009_certificate_consistency.sql`.
 
-Database đang sử dụng: không chạy initializer. Nếu đã có các cập nhật trước, chạy bước 5–7. Khi cần áp dụng lại tất cả cập nhật, giữ thứ tự trên vì các bản cũ có thể định nghĩa lại hàm đã sửa. Các bản cập nhật mới có thể chạy lại và không xóa dữ liệu/tài khoản. Có `DATABASE_URL` trong môi trường thì chạy `node scripts/apply-workflow-migrations.mjs` để áp dụng ba migration mới.
+Database đang sử dụng: không chạy initializer. Nếu đã có các cập nhật trước, chạy bước 5–7,
+sau đó chạy các migration bổ sung trong thư mục `supabase/migrations`. Khi cần áp dụng lại
+tất cả cập nhật, giữ thứ tự trên vì các bản cũ có thể định nghĩa lại hàm đã sửa. Các bản
+cập nhật mới có thể chạy lại và không xóa dữ liệu/tài khoản. Có `DATABASE_URL` trong môi
+trường thì chạy `node scripts/apply-workflow-migrations.mjs` để áp dụng các migration bổ sung.
+
+Migration `supabase/migrations/20261105_fee_payment_integrity.sql` khóa trạng thái khoản
+nộp theo một chiều: chỉ khoản đang chờ duyệt mới được chuyển sang chấp nhận hoặc từ chối,
+không thể mở lại khoản đã xử lý bằng API trực tiếp.
+
+Migration `supabase/migrations/20261105_session_roles_and_types.sql` bổ sung loại phiên
+khai mạc/báo cáo/bế mạc, gắn tiểu ban với chủ đề, và giới hạn chủ trì/thư ký trong nhân sự
+của hội thảo.
 
 Tạo tài khoản quản trị bằng quy trình đăng ký thật, rồi quản trị viên Supabase thiết lập `public.profiles.role = 'admin'` cho đúng UUID của tài khoản đó. Tài khoản người dùng khác đăng ký từ ứng dụng; yêu cầu trở thành ban tổ chức phải được quản trị viên duyệt.
 

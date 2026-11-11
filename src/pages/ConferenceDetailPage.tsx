@@ -694,7 +694,7 @@ export function ConferenceDetailPage() {
               value={conference.topics?.join(", ") || "Chưa cập nhật"}
             />
             <DetailItem
-              label="Hạn đăng ký"
+              label="Thời hạn kết thúc đăng ký"
               value={formatOptionalDateTime(conference.registration_deadline)}
             />
             <DetailItem
@@ -706,7 +706,7 @@ export function ConferenceDetailPage() {
               value={formatOptionalDateTime(conference.review_deadline)}
             />
             <DetailItem
-              label="Hạn camera-ready"
+              label="Hạn nộp bản hoàn thiện"
               value={formatOptionalDateTime(conference.camera_ready_deadline)}
             />
           </div>
