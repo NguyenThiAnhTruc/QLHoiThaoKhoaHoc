@@ -21,6 +21,9 @@ import type { Certificate, Paper, PaperAuthor, UserRole } from "@/types";
 import { Pagination } from "@/components/ui/Pagination";
 import { listPage, normalizeSearch } from "@/lib/listPage";
 
+import { Pagination } from "@/components/ui/Pagination";
+import { listPage, normalizeSearch } from "@/lib/listPage";
+
 interface EligibleRecipient {
   user_id: string;
   full_name: string;
@@ -61,6 +64,7 @@ export function CertificatesPage() {
   const [reviewing, setReviewing] = useState<Certificate | null>(null);
   const [reviewNote, setReviewNote] = useState("");
   const [reviewError, setReviewError] = useState("");
+
   const [reviewBusy, setReviewBusy] = useState(false);
 
   const [revoking,setRevoking]=useState<Certificate|null>(null);
@@ -84,6 +88,7 @@ export function CertificatesPage() {
     const { data, error } = await fetchAll((from, to) => supabase
       .from("certificates")
       .select("*, user:profile_directory!certificates_user_id_fkey(*), conference:conferences(*)", { count: "exact" })
+
       .order("issued_at", { ascending: false }).order("id").range(from, to));
     if (error) {
       if (!background) {
@@ -134,6 +139,7 @@ export function CertificatesPage() {
               });
             }
           }
+
         }
       }
       setCertificates(rows);
@@ -185,6 +191,7 @@ export function CertificatesPage() {
             .order("issued_at", { ascending: false })
         : Promise.resolve({ data: [], error: null }),
     ]).then(([recipientResult, paperResult, existingResult]) => {
+
       if (cancelled) return;
       if (recipientResult.error) showToast('error', 'Không thể tải danh sách người đủ điều kiện nhận chứng nhận');
       else setParticipants((recipientResult.data ?? []) as EligibleRecipient[]);
@@ -265,6 +272,7 @@ export function CertificatesPage() {
   function openConfirmation(cert: Certificate) {
     setConfirming(cert);
     setConfirmationError("");
+
     setConfirmName(cert.confirmed_name || cert.user?.full_name || profile?.full_name || "");
     setConfirmOrganization(
       cert.confirmed_organization || cert.user?.organization || profile?.organization || "",
@@ -276,6 +284,7 @@ export function CertificatesPage() {
     setConfirmationError("");
     if (confirmName.trim().length < 2) {
       setConfirmationError("Họ tên trên chứng nhận phải có ít nhất 2 ký tự.");
+
       return;
     }
     const { error } = await supabase.rpc("submit_certificate_confirmation", {
@@ -287,6 +296,7 @@ export function CertificatesPage() {
       const message = error.message || "Không thể gửi xác nhận";
       setConfirmationError(`Không thể gửi cho Ban tổ chức: ${message}`);
       showToast("error", message);
+
       return;
     }
     showToast("success", "Đã gửi thông tin chứng nhận cho Ban tổ chức");
@@ -299,6 +309,7 @@ export function CertificatesPage() {
     setReviewError("");
     if (!approve && reviewNote.trim().length < 3) {
       setReviewError("Vui lòng nhập lý do yêu cầu chỉnh sửa (ít nhất 3 ký tự).");
+
       return;
     }
     setReviewBusy(true);
@@ -312,6 +323,7 @@ export function CertificatesPage() {
       const message = error.message || "Không thể xử lý chứng nhận";
       setReviewError(`Không thể ${approve ? "duyệt và phát hành" : "yêu cầu chỉnh sửa"}: ${message}`);
       showToast("error", message);
+
     } else {
       showToast("success", approve ? "Đã duyệt và phát hành chứng nhận" : "Đã yêu cầu tác giả chỉnh sửa");
       setReviewing(null);
@@ -357,6 +369,7 @@ export function CertificatesPage() {
       title: conf?.title ?? '', paper: cert.paper?.title, authorGroup: cert.paper?.author_group,
       authorNames: cert.paper?.authors?.map((author) => author.user?.full_name).filter((name): name is string => Boolean(name)),
       type: cert.certificate_type,
+
       start: conf?.start_date ?? cert.issued_at, end: conf?.end_date ?? cert.issued_at,
       issued: cert.issued_at, location: conf?.location, number: cert.certificate_number,
       seal: printableSeal, verificationQr, verificationUrl,
@@ -412,6 +425,7 @@ export function CertificatesPage() {
           <Button className="mt-4" variant="outline" onClick={() => void load()}>Thử lại</Button>
         </Card>
       ) : loading ? (
+
         <div className="flex justify-center py-20">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-300 border-t-teal-600" />
         </div>
@@ -481,6 +495,7 @@ export function CertificatesPage() {
                       )}
                     {canManage(cert.conference_id) && cert.workflow_status === "submitted" && (
                       <Button size="sm" className="mt-2" onClick={() => { setReviewNote(""); setReviewError(""); setReviewing(cert); }}>
+
                         Duyệt hồ sơ
                       </Button>
                     )}
@@ -505,6 +520,7 @@ export function CertificatesPage() {
         <div className="space-y-4">
           <p className="text-sm text-slate-600">Kiểm tra chính xác họ tên và đơn vị. Thông tin này sẽ được dùng để phát hành chứng nhận.</p>
           {confirmationError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{confirmationError}</p>}
+
           <Input label="Họ và tên trên chứng nhận" value={confirmName} onChange={(event) => setConfirmName(event.target.value)} />
           <Input label="Đơn vị công tác" value={confirmOrganization} onChange={(event) => setConfirmOrganization(event.target.value)} />
           <div className="flex justify-end gap-2">
@@ -517,6 +533,7 @@ export function CertificatesPage() {
         <div className="space-y-4">
           <p className="text-sm text-slate-600">Kiểm tra thông tin tác giả đã xác nhận trước khi phát hành.</p>
           {reviewError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{reviewError}</p>}
+
           <div className="rounded-lg bg-slate-50 p-3 text-sm">
             <p><strong>Họ tên:</strong> {reviewing?.confirmed_name}</p>
             <p><strong>Đơn vị:</strong> {reviewing?.confirmed_organization || "Không có"}</p>
@@ -579,6 +596,7 @@ export function CertificatesPage() {
             value={selectedUser}
             onChange={(e) => { setSelectedUsers([]); setSelectedUser(e.target.value); }}
             disabled={certType === "presentation" || !selectedConf || loadingRecipients || issuing}
+
           >
             <option value="">Chọn người nhận</option>
             {participants.map((p) => (
@@ -590,6 +608,7 @@ export function CertificatesPage() {
           {certType !== "presentation" && participants.length > 0 && <div className="flex flex-wrap items-center gap-2"><Button type="button" variant="outline" disabled={issuing || loadingRecipients} onClick={() => { setSelectedUser(""); setSelectedUsers(participants.map((p) => p.user_id)); }}>Chọn tất cả đủ điều kiện</Button><Button type="button" variant="outline" onClick={() => { setSelectedUser(""); setSelectedUsers([]); }}>Bỏ chọn</Button><span className="text-sm text-slate-500">Đã chọn {selectedUsers.length || (selectedUser ? 1 : 0)} người</span></div>}
           <p className="text-sm text-slate-500">
             {certType === 'attendance' ? 'Hội thảo phải kết thúc, không bị hủy và người nhận đã điểm danh. Mỗi người được cấp một chứng nhận tham dự.' : 'Hội thảo phải kết thúc, không bị hủy; bài được chấp nhận và từng thành viên tham gia trong nhóm tác giả sẽ nhận một chứng nhận riêng.'}
+
           </p>
           {selectedConf && <p className="text-sm text-slate-500">{loadingRecipients ? 'Đang tải người đủ điều kiện...' : participants.length === 0 ? certType === "presentation" ? existingPaperCertificates.length > 0 ? 'Các thành viên đủ điều kiện của nhóm đã được cấp chứng nhận.' : 'Chưa có thành viên đủ điều kiện: bài phải được chấp nhận, hội thảo phải kết thúc và thành viên phải được đánh dấu tham gia trong nhóm tác giả.' : 'Không có người đủ điều kiện chưa được cấp loại chứng nhận này.' : `${participants.length} thành viên nhóm đủ điều kiện`}</p>}
           <div className="flex justify-end gap-3">

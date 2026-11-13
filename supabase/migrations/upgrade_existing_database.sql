@@ -2556,7 +2556,9 @@ BEGIN
       RAISE EXCEPTION 'Tiểu ban không thuộc hội thảo';
     END IF;
   END IF;
-
+  IF NEW.session_type = 'reporting' AND NEW.committee_id IS NULL THEN
+    RAISE EXCEPTION 'Phiên báo cáo phải thuộc một tiểu ban';
+  END IF;
   IF NEW.session_type <> 'reporting' AND (NEW.committee_id IS NOT NULL OR NEW.paper_id IS NOT NULL) THEN
     RAISE EXCEPTION 'Chỉ phiên báo cáo mới có tiểu ban hoặc bài báo';
   END IF;
@@ -2594,6 +2596,7 @@ BEGIN
             WHERE pa.paper_id = NEW.paper_id AND pa.user_id = NEW.speaker_id
           )
         )
+
     ) THEN
     RAISE EXCEPTION 'Báo cáo viên phải là tác giả của bài báo';
   END IF;

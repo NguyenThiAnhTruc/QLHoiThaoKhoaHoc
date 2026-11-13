@@ -90,6 +90,7 @@ export function AuthPage() {
         const { error } = await signIn(cleanEmail, password, rememberLogin);
         if (error) {
           setPasswordError(getSignInErrorMessage(error.code, error.message));
+
           showToast("error", "Đăng nhập thất bại");
         } else {
           showToast("success", "Đăng nhập thành công");
@@ -104,6 +105,7 @@ export function AuthPage() {
           }
           return `Đăng nhập thất bại: ${message}`;
         }
+
       } else if (mode === "signup") {
         const { error } = await signUp(
           cleanEmail,

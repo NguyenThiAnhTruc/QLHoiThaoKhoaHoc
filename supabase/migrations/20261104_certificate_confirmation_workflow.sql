@@ -79,7 +79,6 @@ BEGIN
     EXECUTE 'ALTER PUBLICATION supabase_realtime ADD TABLE public.certificates';
   END IF;
 END $$;
-
 CREATE OR REPLACE FUNCTION public.default_certificate_confirmation_status()
 RETURNS trigger LANGUAGE plpgsql SET search_path = public AS $$
 BEGIN

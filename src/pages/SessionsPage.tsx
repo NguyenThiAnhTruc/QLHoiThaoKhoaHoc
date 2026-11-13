@@ -17,6 +17,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Input, Textarea, Select } from "@/components/ui/Field";
 import { showToast } from "@/components/ui/toastStore";
 import { getConferenceDisplayStatus } from "@/lib/constants";
+
 import type { Conference, ConferenceCommittee, ConferenceTopic, Session, Paper, Profile } from "@/types";
 
 export function SessionsPage() {
@@ -149,6 +150,7 @@ export function SessionsPage() {
     const { data, error } = await fetchAll((from,to)=>supabase
       .from("sessions")
       .select("*, conference:conferences(*), committee:conference_committees(*)",{count:"exact"})
+
       .order("start_time", { ascending: true }).order("id").range(from,to));
     if(request!==loadRequest.current)return;
     if (error) {
@@ -199,6 +201,7 @@ export function SessionsPage() {
         .eq("paper_topics.topic_id", committee.topic_id);
     }
     query = query.eq("conference_id", confId).eq("status", "accepted");
+
     const { data, error } = await fetchAll((from,to)=>query.order("title").order("id").range(from,to));
     if (request !== paperRequest.current) return;
     if (error) showToast("error", "Không thể tải bài báo của hội thảo");
@@ -253,6 +256,7 @@ export function SessionsPage() {
             })
             .filter((entry): entry is [string, Profile] => Boolean(entry[1])),
         );
+
         const byPaper: Record<string, Profile[]> = {};
         for (const row of authorRows ?? []) {
           const person = row.user as unknown as Profile;
@@ -288,6 +292,7 @@ export function SessionsPage() {
     setStartTime("");
     setEndTime("");
     setRoom(""); setSessionType("reporting"); setResourceDeadline("");
+
     setCommitteeId("");
     setCommitteeTopicId("");
     setSpeakerId("");
@@ -307,6 +312,7 @@ export function SessionsPage() {
     setStartTime(toLocalDateTimeInput(session.start_time));
     setEndTime(toLocalDateTimeInput(session.end_time));
     setRoom(session.room ?? ""); setSessionType(session.session_type ?? "reporting"); setResourceDeadline(session.resource_deadline ? toLocalDateTimeInput(session.resource_deadline) : "");
+
     setCommitteeId(session.committee_id ?? "");
     setCommitteeTopicId(session.committee?.topic_id ?? "");
     setSpeakerId(session.speaker_id ?? "");
@@ -337,6 +343,10 @@ export function SessionsPage() {
     }
     if (!endTime) {
       showToast("error", "Thời gian kết thúc không được để trống");
+      return;
+    }
+    if (sessionType === "reporting" && !committeeId) {
+      showToast("error", "Phiên báo cáo phải chọn tiểu ban");
       return;
     }
     if (new Date(endTime) <= new Date(startTime)) {
@@ -538,6 +548,7 @@ export function SessionsPage() {
           </Select>
           <Input aria-label="Tên tiểu ban" placeholder="Tên tiểu ban" value={committeeName} onChange={(event) => setCommitteeName(event.target.value)} />
           <Input aria-label="Phòng tiểu ban" placeholder="Phòng" value={committeeRoom} onChange={(event) => setCommitteeRoom(event.target.value)} />
+
           <Select aria-label="Chủ đề của tiểu ban" required value={committeeTopicId} onChange={(event) => setCommitteeTopicId(event.target.value)}>
             <option value="">Chọn chủ đề</option>
             {topics.filter((topic) => topic.conference_id === conferenceId).map((topic) => <option key={topic.id} value={topic.id}>{topic.name}</option>)}
@@ -648,6 +659,7 @@ export function SessionsPage() {
             onChange={(e) => setRoom(e.target.value)}
           />
           <DateInput label="Hạn tải slide/tài liệu (mặc định: giờ bắt đầu phiên)" type="datetime-local" value={resourceDeadline} onValueChange={setResourceDeadline} />
+
           <Select label="Loại phiên *" value={sessionType} onChange={(event) => {
             const nextType = event.target.value as Session["session_type"];
             setSessionType(nextType);
@@ -663,6 +675,7 @@ export function SessionsPage() {
             <option value="closing">Phiên bế mạc</option>
           </Select>
           {sessionType === "reporting" && <><Select label="Tiểu ban (không bắt buộc)" value={committeeId} onChange={(event) => {
+
             const nextId = event.target.value;
             setCommitteeId(nextId);
             const committee = committees.find((item) => item.id === nextId);
@@ -672,7 +685,7 @@ export function SessionsPage() {
             setSpeakerId("");
             void loadPapers(conferenceId, nextId);
           }}>
-            <option value="">Không thuộc tiểu ban</option>
+            <option value="">Chọn tiểu ban</option>
             {committees.filter((committee) => committee.conference_id === conferenceId).map((committee) => <option key={committee.id} value={committee.id}>{committee.name}{committee.room ? ` · ${committee.room}` : ""}</option>)}
           </Select>
           <Select

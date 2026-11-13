@@ -489,6 +489,7 @@ export function ConferenceFormPage({
            />
           <DateInput
             label="Hạn nộp bản hoàn thiện *"
+
             type="datetime-local"
             required
             value={cameraReadyDeadline}
@@ -505,6 +506,7 @@ export function ConferenceFormPage({
             label="Ngày và giờ bắt đầu *"
             type="datetime-local"
             required
+
             value={startDate}
             onValueChange={setStartDate}
            />
@@ -512,6 +514,7 @@ export function ConferenceFormPage({
             label="Ngày và giờ kết thúc *"
             type="datetime-local"
             required
+
             value={endDate}
             onValueChange={setEndDate}
            />

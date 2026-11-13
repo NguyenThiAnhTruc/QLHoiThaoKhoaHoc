@@ -34,6 +34,7 @@ export function SessionDetailPage(){
         }
         session.speaker = speakerResult.data as Session["speaker"];
       }
+
       if (session.paper_id) {
         const paperResult=await supabase.from("papers").select("*").eq("id",session.paper_id).maybeSingle();
         if (paperResult.error) throw new Error(`Không thể tải thông tin bài báo: ${paperResult.error.message}`);

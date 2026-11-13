@@ -72,6 +72,7 @@ export function ResourceCenter({ conferenceId: suppliedConference, sessionId: su
       await confirmInsert(()=>supabase.from("conference_resources").insert({...payload,id}),()=>supabase.from("conference_resources").select("id").eq("id",id).maybeSingle());
       attempt.current=null;uploadedFile.current=null;
       showToast("success","Đã tải tài liệu lên");setFile(null);setTitle("");setUploadKey((value)=>value+1);await load();
+
     }catch(error){
       if(error && typeof error==="object" && "message" in error && String(error.message).includes("Upload expired"))uploadedFile.current=null;
       if(uploadedFile.current){

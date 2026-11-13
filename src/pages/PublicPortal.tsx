@@ -264,6 +264,7 @@ export function PublicPortal({ onSignIn, onSignUp }: PublicPortalProps) {
           !["draft", "completed"].includes(
             getConferenceDisplayStatus(conference),
           ),
+
       );
       setConferences([
         demoConference,

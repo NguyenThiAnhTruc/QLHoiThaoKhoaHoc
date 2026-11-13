@@ -30,6 +30,7 @@ export function ReviewsPage() {
     if (!profile) return;
     const request=++loadRequest.current;
     if (!silent) setLoading(true);
+
     const {data,error}=await fetchAll((from,to)=>{
     let query = supabase
       .from("reviews")
@@ -52,6 +53,7 @@ export function ReviewsPage() {
         : { data: [], error: null };
       if(request!==loadRequest.current)return;
       if (result.error) {showToast('error', 'Không thể tải bài báo được phân công');setReviews([]);if (!silent) setLoading(false);return;}
+
       const papers = new Map((result.data ?? []).map((paper) => [paper.id, paper]));
       setReviews(rows.map((review) => ({ ...review, paper: papers.get(review.paper_id) })) as Review[]);
     }
