@@ -30,30 +30,45 @@ BEGIN
     END IF;
   END IF;
 
+
   IF NEW.session_type = 'reporting' AND NEW.committee_id IS NULL THEN
     RAISE EXCEPTION 'Phiên báo cáo phải thuộc một tiểu ban';
   END IF;
-  IF NEW.session_type <> 'reporting' AND (NEW.committee_id IS NOT NULL OR NEW.paper_id IS NOT NULL) THEN
-    RAISE EXCEPTION 'Chỉ phiên báo cáo mới có tiểu ban hoặc bài báo';
-  END IF;
-
   IF NEW.paper_id IS NOT NULL AND NOT EXISTS (
     SELECT 1
     FROM public.papers p
-    JOIN public.paper_topics pt ON pt.paper_id = p.id
-    JOIN public.conference_committees cc ON cc.id = NEW.committee_id
     WHERE p.id = NEW.paper_id
       AND p.conference_id = NEW.conference_id
       AND p.status = 'accepted'
-      AND cc.topic_id = pt.topic_id
+      AND (
+        NEW.committee_id IS NULL
+        OR EXISTS (
+          SELECT 1
+          FROM public.paper_topics pt
+          JOIN public.conference_committees cc ON cc.id = NEW.committee_id
+          WHERE pt.paper_id = p.id
+            AND cc.topic_id = pt.topic_id
+        )
+      )
+
   ) THEN
     RAISE EXCEPTION 'Bài báo phải được chấp nhận và thuộc chủ đề của tiểu ban';
   END IF;
 
   IF NEW.speaker_id IS NOT NULL AND NEW.paper_id IS NOT NULL
     AND NOT EXISTS (
-      SELECT 1 FROM public.paper_authors pa
-      WHERE pa.paper_id = NEW.paper_id AND pa.user_id = NEW.speaker_id
+      SELECT 1
+      FROM public.papers p
+      WHERE p.id = NEW.paper_id
+        AND (
+          p.submitted_by = NEW.speaker_id
+          OR EXISTS (
+            SELECT 1
+            FROM public.paper_authors pa
+            WHERE pa.paper_id = NEW.paper_id AND pa.user_id = NEW.speaker_id
+          )
+        )
+
     ) THEN
     RAISE EXCEPTION 'Báo cáo viên phải là tác giả của bài báo';
   END IF;

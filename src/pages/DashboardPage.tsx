@@ -92,16 +92,13 @@ export function DashboardPage() {
   const [sessionConferenceIds, setSessionConferenceIds] = useState<string[]>(
     [],
   );
-  const [attendanceCertificateKeys, setAttendanceCertificateKeys] = useState<
-    Set<string>
-  >(new Set());
 
   const isAdmin = profile?.role === "admin";
 
   useEffect(() => {
     let cancelled = false;
-    async function loadDashboard() {
-      setLoading(true);
+    async function loadDashboard(silent = false) {
+      if (!silent) setLoading(true);
       setLoadError(false);
       try {
         const [conferenceResult, paperResult, participantResult] =
@@ -149,7 +146,7 @@ export function DashboardPage() {
         setParticipants(nextParticipants);
 
         if (isAdmin) {
-          const [reviewResult, sessionResult, certificateResult] =
+          const [reviewResult, sessionResult] =
             await Promise.all([
               fetchAll((from, to) =>
                 supabase
@@ -168,21 +165,10 @@ export function DashboardPage() {
                   .order("id")
                   .range(from, to),
               ),
-              fetchAll((from, to) =>
-                supabase
-                  .from("certificates")
-                  .select("conference_id, user_id, certificate_type", {
-                    count: "exact",
-                  })
-                  .order("id")
-                  .range(from, to),
-              ),
             ]);
           if (cancelled) return;
           if (
-            [reviewResult, sessionResult, certificateResult].some(
-              (result) => result.error,
-            )
+            [reviewResult, sessionResult].some((result) => result.error)
           ) {
             throw new Error("Admin dashboard data could not be loaded");
           }
@@ -192,27 +178,20 @@ export function DashboardPage() {
               ({ conference_id }) => conference_id,
             ),
           );
-          setAttendanceCertificateKeys(
-            new Set(
-              (certificateResult.data ?? [])
-                .filter(
-                  ({ certificate_type }) => certificate_type === "attendance",
-                )
-                .map(
-                  ({ conference_id, user_id }) => `${conference_id}:${user_id}`,
-                ),
-            ),
-          );
         }
       } catch {
         if (!cancelled) setLoadError(true);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && !silent) setLoading(false);
       }
     }
     void loadDashboard();
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === "visible") void loadDashboard(true);
+    }, 10000);
     return () => {
       cancelled = true;
+      window.clearInterval(interval);
     };
   }, [isAdmin, profile?.id, reloadKey]);
 
@@ -271,13 +250,6 @@ export function DashboardPage() {
         new Date(conference.start_date) >= startOfToday() &&
         !scheduledConferences.has(conference.id),
     ).length;
-    const missingCertificates = participants.filter(
-      (participant) =>
-        participant.attended &&
-        !attendanceCertificateKeys.has(
-          `${participant.conference_id}:${participant.user_id}`,
-        ),
-    ).length;
     return [
       {
         label: "Bài chưa phân công phản biện",
@@ -294,17 +266,10 @@ export function DashboardPage() {
         value: missingSchedules,
         page: "conferences" as const,
       },
-      {
-        label: "Người đã điểm danh chưa có chứng nhận",
-        value: missingCertificates,
-        page: "certificates" as const,
-      },
     ];
   }, [
-    attendanceCertificateKeys,
     conferences,
     papers,
-    participants,
     reviews,
     sessionConferenceIds,
   ]);
@@ -587,15 +552,6 @@ function MemberDashboard({
                     Đăng ký: {formatDate(registration.registered_at)}
                   </p>
                 </div>
-                <Badge
-                  className={
-                    registration.attended
-                      ? "bg-emerald-100 text-emerald-700"
-                      : "bg-slate-100 text-slate-700"
-                  }
-                >
-                  {registration.attended ? "Đã điểm danh" : "Chưa điểm danh"}
-                </Badge>
               </div>
             ))}
           </div>

@@ -58,7 +58,8 @@ export function PapersPage() {
     setLoading(true);
     const { data, error } = await fetchAll((from, to) => supabase
       .rpc('read_papers', {}, { count: 'exact' })
-      .select('*, conference:conferences(*), submitted_by:profile_directory(*)')
+      .select('*, conference:conferences(*)')
+
       .order('created_at', { ascending: false }).order('id').range(from, to));
     if (error) {
       console.error('Failed to load papers:', error);

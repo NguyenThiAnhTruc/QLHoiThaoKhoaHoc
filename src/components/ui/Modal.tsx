@@ -7,6 +7,7 @@ interface ModalProps {
   title: string;
   children: ReactNode;
   size?: 'sm' | 'md' | 'lg' | 'xl';
+  closeOnBackdrop?: boolean;
 }
 
 const sizeClasses = {
@@ -16,7 +17,7 @@ const sizeClasses = {
   xl: 'max-w-4xl',
 };
 
-export function Modal({ open, onClose, title, children, size = 'md' }: ModalProps) {
+export function Modal({ open, onClose, title, children, size = 'md', closeOnBackdrop = true }: ModalProps) {
   const titleId = useId();
   const dialog = useRef<HTMLDivElement>(null);
   const close = useRef(onClose);
@@ -50,7 +51,10 @@ export function Modal({ open, onClose, title, children, size = 'md' }: ModalProp
       <div
         className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
         onClick={(event) => {
-          if (event.target === event.currentTarget) onClose();
+          if (closeOnBackdrop && event.target === event.currentTarget) onClose();
+        }}
+        onMouseDown={(event) => {
+          if (closeOnBackdrop && event.target === event.currentTarget) onClose();
         }}
       />
       <div ref={dialog} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onClick={(event) => event.stopPropagation()} className={`relative z-10 w-full ${sizeClasses[size]} max-h-[90vh] overflow-y-auto rounded-2xl bg-white shadow-2xl`}>

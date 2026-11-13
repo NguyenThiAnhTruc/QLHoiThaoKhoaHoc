@@ -40,5 +40,35 @@ export function SpeakerPage(){
       if(!cancelled)setSessions(rows.sort((left,right)=>new Date(left.start_time).getTime()-new Date(right.start_time).getTime()));
     }catch(error){if(!cancelled)setError(error instanceof Error?error.message:"Không thể tải báo cáo");}finally{if(!cancelled)setLoading(false);}
   })();return()=>{cancelled=true;};},[profile?.id]);
-  return <div className="space-y-6"><header><h1 className="text-2xl font-bold">Báo cáo của tôi</h1><p className="mt-1 text-sm text-slate-500">Chuẩn bị hồ sơ diễn giả và tài liệu cho phiên đã được phân công.</p></header><Card className="flex flex-wrap items-center justify-between gap-4 p-5"><div className="flex items-center gap-4">{profile?.avatar_url&&<img src={profile.avatar_url} alt="" className="h-16 w-16 rounded-full object-cover" />}<div><h2 className="font-semibold">{profile?.full_name}</h2><p className="mt-1 text-sm text-slate-500">{profile?.bio||"Bổ sung tiểu sử ngắn để giới thiệu khi báo cáo."}</p></div></div><Button variant="outline" onClick={()=>navigate("profile")}>Cập nhật tiểu sử và ảnh</Button></Card>{loading?<p role="status">Đang tải lịch báo cáo...</p>:error?<p role="alert" className="text-rose-700">{error}</p>:sessions.length===0?<Card className="p-8 text-center text-slate-500">Chưa có bài được phân lịch báo cáo. Lịch sẽ xuất hiện khi ban tổ chức phân phiên.</Card>:<div className="grid gap-4 md:grid-cols-2">{sessions.map((session)=><Card key={session.id} className="border-t-4 border-t-teal-600 p-5"><p className="text-xs font-medium text-teal-700">{session.conference?.title}</p><h2 className="mt-2 text-lg font-semibold">{session.title}</h2>{session.paper&&<p className="mt-2 text-sm">Đề tài: {session.paper.title}</p>}<p className="mt-3 text-sm text-slate-500">{new Date(session.start_time).toLocaleString("vi-VN")} · {session.room||"Chưa phân phòng"}</p><p className="mt-1 text-sm text-slate-500">Hạn tải slide: {new Date(session.resource_deadline||session.start_time).toLocaleString("vi-VN")}</p><Button className="mt-4" onClick={()=>navigate("session-detail",{id:session.id})}>Chuẩn bị tài liệu và xem phiên</Button></Card>)}</div>}</div>;
+  return <div className="space-y-6">
+    <header>
+      <p className="text-sm font-medium text-teal-700">Khu vực diễn giả</p>
+      <h1 className="mt-1 text-2xl font-bold text-slate-900">Các phiên báo cáo của tôi</h1>
+      <p className="mt-1 text-sm text-slate-500">Theo dõi lịch, hạn tải tài liệu và chuẩn bị nội dung báo cáo.</p>
+    </header>
+    <Card className="flex flex-wrap items-center justify-between gap-4 border-l-4 border-l-teal-600 p-5">
+      <div className="flex items-center gap-4">
+        {profile?.avatar_url&&<img src={profile.avatar_url} alt="" className="h-14 w-14 rounded-full object-cover" />}
+        <div><h2 className="font-semibold text-slate-900">{profile?.full_name}</h2><p className="mt-1 text-sm text-slate-500">{profile?.bio||"Bổ sung tiểu sử ngắn để giới thiệu khi báo cáo."}</p></div>
+      </div>
+      <Button variant="outline" onClick={()=>navigate("profile")}>Cập nhật tiểu sử và ảnh</Button>
+    </Card>
+    {loading?<p role="status">Đang tải lịch báo cáo...</p>:error?<p role="alert" className="text-rose-700">{error}</p>:sessions.length===0?<Card className="p-8 text-center text-slate-500">Chưa có bài được phân lịch báo cáo. Lịch sẽ xuất hiện khi ban tổ chức phân phiên.</Card>:<div className="grid gap-5 md:grid-cols-2">{sessions.map((session)=>{
+      const deadline=new Date(session.resource_deadline||session.start_time);
+      const expired=deadline.getTime()<=Date.now();
+      return <Card key={session.id} className="overflow-hidden border-t-4 border-t-teal-600 p-0">
+        <div className="p-5">
+          <div className="flex items-start justify-between gap-3"><p className="text-xs font-semibold uppercase tracking-wide text-teal-700">{session.conference?.title}</p><span className={`rounded-full px-2.5 py-1 text-xs font-medium ${expired?"bg-slate-100 text-slate-600":"bg-amber-100 text-amber-800"}`}>{expired?"Đã hết hạn tải":"Đang nhận tài liệu"}</span></div>
+          <h2 className="mt-3 text-lg font-bold text-slate-900">{session.title}</h2>
+          {session.paper&&<p className="mt-2 text-sm text-slate-600"><span className="font-medium">Bài báo:</span> {session.paper.title}</p>}
+          <div className="mt-4 space-y-2 rounded-lg bg-slate-50 p-3 text-sm text-slate-600">
+            <p><span className="font-medium text-slate-800">Thời gian:</span> {new Date(session.start_time).toLocaleString("vi-VN")} – {new Date(session.end_time).toLocaleTimeString("vi-VN",{hour:"2-digit",minute:"2-digit"})}</p>
+            <p><span className="font-medium text-slate-800">Phòng:</span> {session.room||"Chưa phân phòng"}</p>
+            <p><span className="font-medium text-slate-800">Hạn tải tài liệu:</span> {deadline.toLocaleString("vi-VN")}</p>
+          </div>
+          <Button className="mt-4 w-full" onClick={()=>navigate("session-detail",{id:session.id})}>Xem phiên và tải tài liệu</Button>
+        </div>
+      </Card>;
+    })}</div>}
+  </div>;
 }

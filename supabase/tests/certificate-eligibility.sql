@@ -15,6 +15,8 @@ INSERT INTO public.papers(id,conference_id,title,status,submitted_by) VALUES
  ('96000000-0000-0000-0000-000000000002','96000000-0000-0000-0000-000000000001','Accepted talk','accepted','00000000-0000-0000-0000-000000000003');
 INSERT INTO public.sessions(id,conference_id,title,start_time,end_time,speaker_id,paper_id) VALUES
  ('96000000-0000-0000-0000-000000000003','96000000-0000-0000-0000-000000000001','Talk',now()+interval '1 hour',now()+interval '2 hours','00000000-0000-0000-0000-000000000003','96000000-0000-0000-0000-000000000002');
+INSERT INTO public.paper_authors(paper_id,user_id,author_order,participation_status)
+VALUES ('96000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000004',1,'participating');
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000002',true);
 SELECT pg_temp.expect_check($q$INSERT INTO public.certificates(conference_id,user_id,certificate_type) VALUES
@@ -33,6 +35,8 @@ END $$;
 UPDATE public.sessions SET start_time=now()-interval '2 hours',end_time=now()-interval '1 hour' WHERE id='96000000-0000-0000-0000-000000000003';
 INSERT INTO public.certificates(conference_id,user_id,certificate_type) VALUES
  ('96000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000003','presentation');
+SELECT pg_temp.expect_check($q$INSERT INTO public.certificates(conference_id,user_id,certificate_type,paper_id) VALUES
+ ('96000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000004','presentation','96000000-0000-0000-0000-000000000002')$q$);
 SELECT pg_temp.expect_check($q$UPDATE public.conferences SET max_participants=1 WHERE id='96000000-0000-0000-0000-000000000001'$q$);
 DELETE FROM public.participants WHERE conference_id='96000000-0000-0000-0000-000000000001' AND user_id='00000000-0000-0000-0000-000000000004';
 UPDATE public.conferences SET max_participants=1 WHERE id='96000000-0000-0000-0000-000000000001';

@@ -145,6 +145,7 @@ function AppContent() {
     <Modal
       open={formRoute !== null}
       onClose={dismissForm}
+      closeOnBackdrop={false}
       title={formRoute?.page === "conference-form"
         ? (formRoute.params.id ? "Chỉnh sửa hội thảo" : "Tạo hội thảo mới")
         : (formRoute?.params.id ? "Chỉnh sửa bài báo" : "Nộp bài báo mới")}

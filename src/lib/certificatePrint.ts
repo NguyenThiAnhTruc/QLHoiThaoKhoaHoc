@@ -7,6 +7,8 @@ export function escapeCertificateText(value: string | null | undefined): string 
 
 export interface CertificatePrintInput {
   name: string; organization?: string; title: string; paper?: string;
+  authorGroup?: string; authorNames?: string[];
+
   type: 'attendance' | 'presentation'; start: string; end: string;
   issued: string; location?: string; number: string; seal?: string; verificationQr?: string; verificationUrl?: string;
 }
@@ -55,6 +57,9 @@ export function renderCertificate(input: CertificatePrintInput): string {
   ${organization ? `<div class="organization">${text(organization)}</div>` : ''}
   <div class="statement">${input.type === 'attendance' ? 'đã tham dự và hoàn thành chương trình của' : 'đã có bài báo được chấp nhận và trình bày tại'}</div><div class="title">${text(input.title)}</div>
   ${input.paper ? `<div class="statement">Bài báo: <strong>${text(input.paper)}</strong></div>` : ''}
+  ${input.authorGroup ? `<div class="statement">Nhóm tác giả: <strong>${text(input.authorGroup)}</strong></div>` : ''}
+  ${input.authorNames?.length ? `<div class="statement">Tác giả: <strong>${text(input.authorNames.join(', '))}</strong></div>` : ''}
+
   <div class="details"><div>Thời gian<span>${date(input.start)} – ${date(input.end)}</span></div>${input.location ? `<div>Địa điểm<span>${text(input.location)}</span></div>` : ''}</div>
   </main></div><div class="certificate-footer"><div><span class="footer-label">Mã chứng nhận</span><div class="number">${text(input.number)}</div>${qr ? `<img class="qr" src="${text(qr)}" alt="QR tra cứu chứng nhận">` : ''}${verification ? `<a class="verify" href="${text(verification)}">Tra cứu hiệu lực</a>` : '<span class="verify">Đối chiếu với ban tổ chức</span>'}</div><div class="issuer"><span class="footer-label">Đại diện ban tổ chức</span><span class="issuer-title">Chữ ký và xác nhận</span><span class="signature-line"></span><img class="seal" src="${text(seal)}" alt="Con dấu" onerror="this.style.display='none'"><div>Ngày cấp: ${date(input.issued)}</div></div><div><span class="footer-label">Giá trị xác nhận</span><strong>Học thuật · Chính thức</strong><p class="number">Bản ghi được lưu trên hệ thống</p></div></div></article></body></html>`;
 }

@@ -16,13 +16,16 @@ export function DateInput({ type = "date", value, onValueChange, label, id, min,
   const text = draft.source === value ? draft.text : formatDateInput(value);
   const withTime = type === "datetime-local";
   const format = withTime ? "dd/mm/yyyy HH:mm" : "dd/mm/yyyy";
+  const required = props.required ?? label?.includes("*");
   const parsed = parseDateInput(text, withTime);
-  const error = text && !parsed ? `Vui lòng nhập ngày hợp lệ theo ${format}.`
+  const error = !text && required ? "Vui lòng nhập thông tin này."
+    : text && !parsed ? `Vui lòng nhập ngày hợp lệ theo ${format}.`
     : parsed && min && parsed < String(min) ? `Ngày phải từ ${formatDateInput(String(min))}.`
     : parsed && max && parsed > String(max) ? `Ngày phải đến ${formatDateInput(String(max))}.` : "";
   const input = <span className="relative block">
     <input
     {...props}
+    required={required}
     id={inputId}
     type="text"
     value={text}
@@ -31,7 +34,7 @@ export function DateInput({ type = "date", value, onValueChange, label, id, min,
     aria-invalid={error ? true : undefined}
     title={format}
     style={{ paddingRight: "3rem", ...props.style }}
-    className={`w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 disabled:bg-slate-50 ${className}`}
+    className={`w-full rounded-lg border ${error ? "border-rose-400" : "border-slate-300"} bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 disabled:bg-slate-50 ${className}`}
     ref={(element) => { element?.setCustomValidity(error); }}
     onChange={(event) => {
       const nextText = event.target.value;
@@ -67,5 +70,5 @@ export function DateInput({ type = "date", value, onValueChange, label, id, min,
       />
     </span>
   </span>;
-  return label ? <div className="space-y-1.5"><label htmlFor={inputId} className="block text-sm font-medium text-slate-700">{label}</label>{input}</div> : input;
+  return label ? <div className="space-y-1.5"><label htmlFor={inputId} className="block text-sm font-medium text-slate-700">{label}</label>{input}{error && <p className="text-sm text-rose-600">{error}</p>}</div> : input;
 }

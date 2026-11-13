@@ -125,11 +125,41 @@ export function ConferenceFormPage({
     return () => { cancelled = true; };
   }, [editId, isEdit, navigate]);
 
+  useEffect(() => {
+    if (isEdit) return;
+    let cancelled = false;
+    void (async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user || cancelled) return;
+      const { data } = await supabase
+        .from("profile_directory")
+        .select("full_name, email")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (cancelled || !data) return;
+      setContactName((current) => current || data.full_name || "");
+      setContactEmail((current) => current || data.email || user.email || "");
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isEdit]);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (loading) return;
-    if (!title.trim() || !startDate || !endDate) {
-      showToast("error", "Vui lòng điền đầy đủ thông tin");
+    if (!title.trim()) {
+      showToast("error", "Tên hội thảo không được để trống");
+      return;
+    }
+    if (!startDate) {
+      showToast("error", "Ngày và giờ bắt đầu không được để trống");
+      return;
+    }
+    if (!endDate) {
+      showToast("error", "Ngày và giờ kết thúc không được để trống");
       return;
     }
     if (new Date(endDate) < new Date(startDate)) {
@@ -142,6 +172,22 @@ export function ConferenceFormPage({
     }
     if (topics.some((topic) => !availableTopics.includes(topic))) {
       showToast("error", "Vui lòng chọn lại chủ đề thuộc lĩnh vực đã chọn");
+      return;
+    }
+    if (!contactName.trim()) {
+      showToast("error", "Tên người liên hệ không được để trống");
+      return;
+    }
+    if (!contactEmail.trim()) {
+      showToast("error", "Email liên hệ không được để trống");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail.trim())) {
+      showToast("error", "Email liên hệ không đúng định dạng");
+      return;
+    }
+    if (!contactPhone.trim()) {
+      showToast("error", "Số điện thoại liên hệ không được để trống");
       return;
     }
 
@@ -280,6 +326,7 @@ export function ConferenceFormPage({
       >
         <Input
           label="Tên hội thảo *"
+          required
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="Nhập tên hội thảo"
@@ -380,6 +427,24 @@ export function ConferenceFormPage({
           />
         </div>
 
+        <label className="flex items-start gap-3 rounded-lg border border-slate-200 p-4 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            disabled={loading}
+            checked={isSchedulePublic}
+            onChange={(event) => setIsSchedulePublic(event.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-slate-300 accent-teal-600"
+          />
+          <span>
+            <span className="font-medium text-slate-900">
+              Công khai lịch trình
+            </span>
+            <span className="mt-1 block text-xs text-slate-500">
+              Cho phép tác giả và người tham dự xem các phiên đã tạo của hội thảo.
+            </span>
+          </span>
+        </label>
+
         <Input
           label="URL hình ảnh bìa"
           value={coverImageUrl}
@@ -410,6 +475,7 @@ export function ConferenceFormPage({
           <DateInput
             label="Hạn nộp bài *"
             type="datetime-local"
+            required
             value={submissionDeadline}
             onValueChange={setSubmissionDeadline}
            />
@@ -417,30 +483,38 @@ export function ConferenceFormPage({
             disabled={!reviewEnabled}
             label="Hạn phản biện *"
             type="datetime-local"
+            required={reviewEnabled}
             value={reviewDeadline}
             onValueChange={setReviewDeadline}
            />
           <DateInput
             label="Hạn nộp bản hoàn thiện *"
+
             type="datetime-local"
+            required
             value={cameraReadyDeadline}
             onValueChange={setCameraReadyDeadline}
            />
           <DateInput
             label="Thời hạn kết thúc đăng ký *"
             type="datetime-local"
+            required
             value={registrationDeadline}
             onValueChange={setRegistrationDeadline}
            />
           <DateInput
             label="Ngày và giờ bắt đầu *"
             type="datetime-local"
+            required
+
             value={startDate}
             onValueChange={setStartDate}
            />
           <DateInput
             label="Ngày và giờ kết thúc *"
             type="datetime-local"
+            required
+
             value={endDate}
             onValueChange={setEndDate}
            />
@@ -451,21 +525,24 @@ export function ConferenceFormPage({
             Liên hệ ban tổ chức
           </p>
           <Input
-            label="Người liên hệ"
+            label="Người liên hệ *"
+            required
             value={contactName}
             onChange={(e) => setContactName(e.target.value)}
             placeholder="Họ và tên"
           />
           <div className="grid gap-4 sm:grid-cols-2">
             <Input
-              label="Email liên hệ"
+              label="Email liên hệ *"
               type="email"
+              required
               value={contactEmail}
               onChange={(e) => setContactEmail(e.target.value)}
               placeholder="contact@example.com"
             />
             <Input
-              label="Số điện thoại liên hệ"
+              label="Số điện thoại liên hệ *"
+              required
               value={contactPhone}
               onChange={(e) => setContactPhone(e.target.value)}
               placeholder="0900000000"

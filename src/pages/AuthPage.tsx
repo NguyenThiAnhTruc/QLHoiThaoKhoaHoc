@@ -89,11 +89,23 @@ export function AuthPage() {
       if (mode === "signin") {
         const { error } = await signIn(cleanEmail, password, rememberLogin);
         if (error) {
-          setPasswordError("Email hoặc mật khẩu không đúng.");
+          setPasswordError(getSignInErrorMessage(error.code, error.message));
+
           showToast("error", "Đăng nhập thất bại");
         } else {
           showToast("success", "Đăng nhập thành công");
         }
+
+        function getSignInErrorMessage(code: string | null, message: string) {
+          if (code === "email_not_confirmed" || message.toLowerCase().includes("email not confirmed")) {
+            return "Email chưa được xác nhận. Vui lòng kiểm tra hộp thư hoặc nhờ quản trị viên xác nhận tài khoản.";
+          }
+          if (code === "invalid_credentials" || message.toLowerCase().includes("invalid login credentials")) {
+            return "Email hoặc mật khẩu không đúng.";
+          }
+          return `Đăng nhập thất bại: ${message}`;
+        }
+
       } else if (mode === "signup") {
         const { error } = await signUp(
           cleanEmail,

@@ -26,10 +26,11 @@ export function ReviewsPage() {
   const loadRequest=useRef(0);
   const [tab, setTab] = useState<"assigned" | "in_progress" | "declined" | "completed" | "all">("all");
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     if (!profile) return;
     const request=++loadRequest.current;
-    setLoading(true);
+    if (!silent) setLoading(true);
+
     const {data,error}=await fetchAll((from,to)=>{
     let query = supabase
       .from("reviews")
@@ -51,15 +52,20 @@ export function ReviewsPage() {
         ? await fetchByIds(paperIds,(ids,from,to)=>supabase.rpc('read_papers',{}, {count:'exact'}).in('id', ids).select('*, conference:conferences(*)').order('id').range(from,to))
         : { data: [], error: null };
       if(request!==loadRequest.current)return;
-      if (result.error) {showToast('error', 'Không thể tải bài báo được phân công');setReviews([]);setLoading(false);return;}
+      if (result.error) {showToast('error', 'Không thể tải bài báo được phân công');setReviews([]);if (!silent) setLoading(false);return;}
+
       const papers = new Map((result.data ?? []).map((paper) => [paper.id, paper]));
       setReviews(rows.map((review) => ({ ...review, paper: papers.get(review.paper_id) })) as Review[]);
     }
-    setLoading(false);
+    if (!silent) setLoading(false);
   }, [profile]);
 
   useEffect(() => {
-    load();
+    void load();
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === "visible") void load(true);
+    }, 10000);
+    return () => window.clearInterval(interval);
   }, [load]);
 
   const filtered = reviews.filter((r) => {

@@ -66,6 +66,19 @@ END $$;
 CREATE INDEX IF NOT EXISTS certificates_workflow_status_idx
   ON public.certificates(workflow_status, conference_id);
 
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime')
+     AND NOT EXISTS (
+       SELECT 1
+       FROM pg_publication_tables
+       WHERE pubname = 'supabase_realtime'
+         AND schemaname = 'public'
+         AND tablename = 'certificates'
+     ) THEN
+    EXECUTE 'ALTER PUBLICATION supabase_realtime ADD TABLE public.certificates';
+  END IF;
+END $$;
 CREATE OR REPLACE FUNCTION public.default_certificate_confirmation_status()
 RETURNS trigger LANGUAGE plpgsql SET search_path = public AS $$
 BEGIN
@@ -123,26 +136,26 @@ CREATE OR REPLACE FUNCTION public.submit_certificate_confirmation(
   recipient_organization text
 ) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
-DECLARE current_certificate public.certificates;
+DECLARE
+  v_recipient_name text := $2;
+  v_recipient_organization text := $3;
 BEGIN
-  SELECT * INTO current_certificate
-  FROM public.certificates
-  WHERE id = target_certificate_id AND user_id = auth.uid()
-  FOR UPDATE;
-  IF NOT FOUND THEN RAISE EXCEPTION 'Không tìm thấy chứng nhận của bạn'; END IF;
-  IF current_certificate.workflow_status NOT IN ('pending_confirmation', 'needs_changes') THEN
-    RAISE EXCEPTION 'Chứng nhận không còn chờ xác nhận';
-  END IF;
-  IF length(btrim(coalesce(recipient_name, ''))) < 2 THEN
+  IF length(btrim(coalesce(v_recipient_name, ''))) < 2 THEN
     RAISE EXCEPTION 'Họ tên xác nhận không hợp lệ';
   END IF;
   UPDATE public.certificates
-  SET confirmed_name = btrim(recipient_name),
-      confirmed_organization = btrim(coalesce(recipient_organization, '')),
+  SET confirmed_name = btrim(v_recipient_name),
+      confirmed_organization = btrim(coalesce(v_recipient_organization, '')),
       workflow_status = 'submitted',
       submitted_at = now(),
       review_notes = ''
-  WHERE id = target_certificate_id;
+  WHERE id = target_certificate_id
+    AND user_id = auth.uid()
+    AND revoked_at IS NULL
+    AND workflow_status IN ('pending_confirmation', 'needs_changes', 'issued');
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Chứng nhận không tồn tại, không thuộc tài khoản này hoặc không còn chờ xác nhận';
+  END IF;
 END $$;
 
 CREATE OR REPLACE FUNCTION public.approve_certificate_confirmation(
@@ -160,7 +173,6 @@ BEGIN
   UPDATE public.certificates
   SET workflow_status = 'issued',
       issued_by = auth.uid(),
-      issued_at = now(),
       reviewed_by = auth.uid(),
       reviewed_at = now(),
       review_notes = btrim(coalesce(approval_note, ''))

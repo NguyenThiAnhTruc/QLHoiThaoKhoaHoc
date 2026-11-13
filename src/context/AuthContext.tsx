@@ -83,7 +83,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function signIn(email: string, password: string, remember = true) {
     setRememberLogin(remember);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error: error?.message ?? null };
+    return {
+      error: error
+        ? {
+            code: error.code ?? null,
+            message: error.message,
+          }
+        : null,
+    };
   }
 
   async function signInWithGoogle(remember = true) {

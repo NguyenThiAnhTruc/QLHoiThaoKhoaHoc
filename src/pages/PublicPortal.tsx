@@ -260,7 +260,11 @@ export function PublicPortal({ onSignIn, onSignUp }: PublicPortalProps) {
       const publishedConferences = (
         (conferenceRows ?? []) as unknown as Conference[]
       ).filter(
-        (conference) => getConferenceDisplayStatus(conference) !== "draft",
+        (conference) =>
+          !["draft", "completed"].includes(
+            getConferenceDisplayStatus(conference),
+          ),
+
       );
       setConferences([
         demoConference,
@@ -1079,11 +1083,12 @@ function ExploreColumn({
     const track = trackRef.current;
     if (!track) return;
     const activeSlide = track.children.item(activeIndex) as HTMLElement | null;
-    activeSlide?.scrollIntoView({
-      behavior: "smooth",
-      block: "nearest",
-      inline: "start",
-    });
+    if (activeSlide) {
+      track.scrollTo({
+        left: activeSlide.offsetLeft,
+        behavior: "smooth",
+      });
+    }
   }, [activeIndex]);
 
   function syncActiveCard() {
@@ -1651,9 +1656,25 @@ function PublicConferenceDetail({
           <aside className="space-y-5">
             <DetailSection title="Liên hệ ban tổ chức">
               <div className="space-y-3 text-sm text-slate-600">
-                <p className="font-medium text-slate-900">
-                  {conference.contact_name || "Ban tổ chức hội thảo"}
-                </p>
+                {conference.contact_name ||
+                conference.contact_email ||
+                conference.contact_phone ? (
+                  <>
+                    <p className="font-medium text-slate-900">
+                      {conference.contact_name || "Ban tổ chức hội thảo"}
+                    </p>
+                    {!conference.contact_email &&
+                      !conference.contact_phone && (
+                        <p className="text-slate-500">
+                          Thông tin liên hệ chi tiết chưa được cập nhật.
+                        </p>
+                      )}
+                  </>
+                ) : (
+                  <p className="text-slate-500">
+                    Ban tổ chức chưa cập nhật thông tin liên hệ.
+                  </p>
+                )}
                 {conference.contact_email && (
                   <a
                     className="flex items-center gap-2 text-teal-700"
