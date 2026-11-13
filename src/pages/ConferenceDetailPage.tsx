@@ -1,8 +1,6 @@
 import { ResourceCenter } from "@/components/ResourceCenter";
 import { AgendaView } from "@/components/AgendaView";
-import { DateInput } from "@/components/ui/DateInput";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useQrScanner } from "@/context/useQrScanner";
+import { useCallback, useEffect, useState } from "react";
 import { TransferConferenceOwner } from "@/components/TransferConferenceOwner";
 import {
   ArrowLeft,
@@ -10,12 +8,9 @@ import {
   MapPin,
   Users,
   UserPlus,
-  QrCode,
   FileText,
   CalendarClock as ScheduleIcon,
   Trash2,
-  Check,
-  X,
   Search,
   ShieldCheck,
 } from "lucide-react";
@@ -27,7 +22,6 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { showToast } from "@/components/ui/toastStore";
-import { exportExcel } from "@/lib/exportExcel";
 import {
   CONFERENCE_STATUS_LABELS,
   CONFERENCE_STATUS_COLORS,
@@ -64,18 +58,6 @@ export function ConferenceDetailPage() {
   const [staff, setStaff] = useState<ConferenceStaff[]>([]);
   const [loading, setLoading] = useState(true);
   const [isRegistered, setIsRegistered] = useState(false);
-  const [qrModalOpen, setQrModalOpen] = useState(false);
-  const [myRegistration, setMyRegistration] = useState<Participant | null>(
-    null,
-  );
-  const [attendanceSession, setAttendanceSession] = useState<{
-    code: string;
-    starts_at: string;
-    ends_at: string;
-  } | null>(null);
-  const [attendanceStartsAt, setAttendanceStartsAt] = useState("");
-  const [attendanceEndsAt, setAttendanceEndsAt] = useState("");
-  const [savingAttendanceSession, setSavingAttendanceSession] = useState(false);
   const [activeTab, setActiveTab] = useState("info");
   const [staffModalOpen, setStaffModalOpen] = useState(false);
   const [staffCandidates, setStaffCandidates] = useState<Profile[]>([]);
@@ -83,16 +65,9 @@ export function ConferenceDetailPage() {
   const [staffSearch, setStaffSearch] = useState("");
   const [candidateSearch, setCandidateSearch] = useState("");
   const [savingStaff, setSavingStaff] = useState(false);
-  const [selfCheckinCode, setSelfCheckinCode] = useState("");
-  const [checkingIn, setCheckingIn] = useState(false);
-  const [scannerOpen, setScannerOpen] = useState(false);
-  const scannerVideoRef = useRef<HTMLVideoElement>(null);
   const [attendanceCertificate, setAttendanceCertificate] = useState<{
     id: string;
   } | null>(null);
-  const [attendanceFilter, setAttendanceFilter] = useState<
-    "all" | "attended" | "pending"
-  >("all");
 
   const isStaff = staff.some(
     (staffMember) => staffMember.user_id === profile?.id,
@@ -141,17 +116,6 @@ export function ConferenceDetailPage() {
       .order("start_time", { ascending: true });
     if (s) setSessions(s as unknown as Session[]);
 
-    const { data: attendance } = await supabase
-      .from("attendance_sessions")
-      .select("code, starts_at, ends_at")
-      .eq("conference_id", conferenceId)
-      .maybeSingle();
-    setAttendanceSession(attendance);
-    if (attendance) {
-      setAttendanceStartsAt(toDateTimeInput(attendance.starts_at));
-      setAttendanceEndsAt(toDateTimeInput(attendance.ends_at));
-    }
-
     const { data: parts } = await supabase
       .from("participants")
       .select("*, user:profile_directory!participants_user_id_fkey(*)")
@@ -174,7 +138,6 @@ export function ConferenceDetailPage() {
         .eq("user_id", profileId)
         .maybeSingle();
       setIsRegistered(!!myReg);
-      setMyRegistration(myReg as unknown as Participant | null);
       if (profileId) {
         const { data: certificate } = await supabase
           .from("certificates")
@@ -187,31 +150,10 @@ export function ConferenceDetailPage() {
       }
     } else {
       setIsRegistered(false);
-      setMyRegistration(null);
     }
 
     setLoading(false);
   }, [conferenceId, profileId]);
-
-  async function saveAttendanceSession() {
-    if (!attendanceStartsAt || !attendanceEndsAt || savingAttendanceSession)
-      return;
-    setSavingAttendanceSession(true);
-    const { data, error } = await supabase.rpc("create_attendance_session", {
-      target_conference_id: conferenceId,
-      session_starts_at: new Date(attendanceStartsAt).toISOString(),
-      session_ends_at: new Date(attendanceEndsAt).toISOString(),
-    });
-    setSavingAttendanceSession(false);
-    if (error) {
-      showToast("error", error.message);
-      return;
-    }
-    setAttendanceSession(
-      data as { code: string; starts_at: string; ends_at: string },
-    );
-    showToast("success", "Đã lưu phiên điểm danh");
-  }
 
   useEffect(() => {
     load();
@@ -321,49 +263,6 @@ export function ConferenceDetailPage() {
     }
   }
 
-  async function handleSelfCheckin(codeOverride?: string) {
-    const code = (codeOverride ?? selfCheckinCode).trim();
-    if (!code || checkingIn) return;
-    setCheckingIn(true);
-    const { error } = await supabase.rpc("check_in_self", {
-      attendance_code_input: code,
-    });
-    setCheckingIn(false);
-    if (error) {
-      showToast("error", error.message);
-      return;
-    }
-    showToast("success", "Điểm danh thành công");
-    setQrModalOpen(false);
-    setSelfCheckinCode("");
-    load();
-  }
-
-  const selfCheckinHandler = useRef(handleSelfCheckin);
-  selfCheckinHandler.current = handleSelfCheckin;
-
-  useQrScanner(scannerOpen, scannerVideoRef, (code) => {
-    setSelfCheckinCode(code); setScannerOpen(false);
-    void selfCheckinHandler.current(code);
-  });
-
-  async function handleToggleAttendance(part: Participant) {
-    const { error } = await supabase
-      .from("participants")
-      .update({
-        attended: !part.attended,
-        checked_in_at: !part.attended ? new Date().toISOString() : null,
-        checked_in_by: !part.attended ? (profile?.id ?? null) : null,
-      })
-      .eq("id", part.id);
-    if (error) {
-      showToast("error", "Cập nhật điểm danh thất bại");
-    } else {
-      showToast("success", "Đã cập nhật điểm danh");
-      load();
-    }
-  }
-
   async function openStaffModal() {
     const { data, error } = await supabase
       .from("profile_directory")
@@ -446,10 +345,6 @@ export function ConferenceDetailPage() {
 
   const eventStarted = new Date() >= new Date(conference.start_date);
   const eventFinished = new Date() > new Date(conference.end_date);
-  const checkinOpen =
-    !!attendanceSession &&
-    new Date() >= new Date(attendanceSession.starts_at) &&
-    new Date() <= new Date(attendanceSession.ends_at);
   const canCancelRegistration = !eventStarted && Boolean(registrationOpen);
 
   const tabs = [
@@ -504,29 +399,7 @@ export function ConferenceDetailPage() {
         candidate.organization.toLowerCase().includes(query))
     );
   });
-  const filteredParticipants = participants.filter(
-    (participant) =>
-      attendanceFilter === "all" ||
-      (attendanceFilter === "attended"
-        ? participant.attended
-        : !participant.attended),
-  );
-  const attendedCount = participants.filter(
-    (participant) => participant.attended,
-  ).length;
-  function exportParticipants() {
-    exportExcel(
-      `nguoi-tham-du-${conferenceId}`,
-      ["Họ tên", "Email", "Vai trò", "Ngày đăng ký", "Trạng thái điểm danh"],
-      participants.map((participant) => [
-        participant.user?.full_name ?? "Chưa đặt tên",
-        participant.user?.email ?? "",
-        participant.user ? ROLE_LABELS[participant.user.role] : "",
-        new Date(participant.registered_at).toLocaleDateString("vi-VN"),
-        participant.attended ? "Đã điểm danh" : "Chưa điểm danh",
-      ]),
-    );
-  }
+  const filteredParticipants = participants;
   return (
     <div className="space-y-6">
       <button
@@ -626,16 +499,6 @@ export function ConferenceDetailPage() {
                   Hủy đăng ký
                 </Button>
               )}
-              {checkinOpen && !myRegistration?.attended && (
-                <Button onClick={() => setQrModalOpen(true)}>
-                  <QrCode className="h-4 w-4" /> Điểm danh
-                </Button>
-              )}
-              {myRegistration?.attended && (
-                <span className="rounded-lg bg-teal-500/20 px-4 py-2 text-sm font-semibold text-teal-100">
-                  Đã điểm danh
-                </span>
-              )}
               {eventFinished && attendanceCertificate && (
                 <Button onClick={() => navigate("certificates")}>
                   <FileText className="h-4 w-4" /> Xem chứng nhận
@@ -694,7 +557,7 @@ export function ConferenceDetailPage() {
               value={conference.topics?.join(", ") || "Chưa cập nhật"}
             />
             <DetailItem
-              label="Hạn đăng ký"
+              label="Thời hạn kết thúc đăng ký"
               value={formatOptionalDateTime(conference.registration_deadline)}
             />
             <DetailItem
@@ -706,70 +569,10 @@ export function ConferenceDetailPage() {
               value={formatOptionalDateTime(conference.review_deadline)}
             />
             <DetailItem
-              label="Hạn camera-ready"
+              label="Hạn nộp bản hoàn thiện"
               value={formatOptionalDateTime(conference.camera_ready_deadline)}
             />
           </div>
-          {canManageStaff && (
-            <div className="border-t border-slate-100 pt-5">
-              <h4 className="font-semibold text-slate-900">
-                Phiên điểm danh QR
-              </h4>
-              <p className="mt-1 text-sm text-slate-500">
-                Mỗi hội thảo có một mã dùng chung trong thời gian phiên.
-              </p>
-              <div className="mt-3 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
-                <label className="text-sm text-slate-600">
-                  Bắt đầu
-                  <DateInput
-                    type="datetime-local"
-                    value={attendanceStartsAt}
-                    onValueChange={setAttendanceStartsAt}
-                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-                  />
-                </label>
-                <label className="text-sm text-slate-600">
-                  Kết thúc
-                  <DateInput
-                    type="datetime-local"
-                    value={attendanceEndsAt}
-                    onValueChange={setAttendanceEndsAt}
-                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-                  />
-                </label>
-                <Button
-                  className="self-end"
-                  disabled={
-                    savingAttendanceSession ||
-                    !attendanceStartsAt ||
-                    !attendanceEndsAt
-                  }
-                  onClick={() => void saveAttendanceSession()}
-                >
-                  {savingAttendanceSession ? "Đang lưu..." : "Lưu phiên"}
-                </Button>
-              </div>
-              {attendanceSession && (
-                <div className="mt-4 flex flex-wrap items-center gap-4 rounded-lg bg-teal-50 p-3">
-                  <span className="text-sm text-teal-800">
-                    Mã điểm danh:{" "}
-                    <strong className="font-mono">
-                      {attendanceSession.code}
-                    </strong>
-                  </span>
-                  <img
-                    className="h-24 w-24 rounded bg-white p-1"
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(attendanceSession.code)}`}
-                    alt="QR điểm danh"
-                  />
-                  <span className="text-xs text-slate-500">
-                    {formatConferenceDateTime(attendanceSession.starts_at)} –{" "}
-                    {formatConferenceDateTime(attendanceSession.ends_at)}
-                  </span>
-                </div>
-              )}
-            </div>
-          )}
         </Card>
       )}
 
@@ -834,44 +637,6 @@ export function ConferenceDetailPage() {
 
       {activeTab === "participants" && (
         <div className="space-y-4">
-          {canEdit && (
-            <Card className="p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="font-semibold text-slate-900">Điểm danh</p>
-                  <p className="mt-1 text-sm text-slate-500">
-                    {attendedCount}/{participants.length} người đã điểm danh
-                  </p>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={!participants.length}
-                  onClick={exportParticipants}
-                >
-                  Xuất danh sách
-                </Button>
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {(
-                  [
-                    ["all", "Tất cả"],
-                    ["attended", "Đã điểm danh"],
-                    ["pending", "Chưa điểm danh"],
-                  ] as const
-                ).map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setAttendanceFilter(value)}
-                    className={`rounded-lg px-3 py-1.5 text-sm ${attendanceFilter === value ? "bg-teal-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </Card>
-          )}
           {filteredParticipants.length === 0 ? (
             <Card className="p-8 text-center">
               <Users className="mx-auto h-10 w-10 text-slate-300" />
@@ -899,33 +664,6 @@ export function ConferenceDetailPage() {
                     </p>
                   </div>
                 </div>
-                {canEdit ? (
-                  <button
-                    onClick={() => handleToggleAttendance(part)}
-                    className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                      part.attended
-                        ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
-                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                    }`}
-                  >
-                    {part.attended ? (
-                      <Check className="h-4 w-4" />
-                    ) : (
-                      <X className="h-4 w-4" />
-                    )}
-                    {part.attended ? "Đã điểm danh" : "Chưa điểm danh"}
-                  </button>
-                ) : (
-                  <Badge
-                    className={
-                      part.attended
-                        ? "bg-emerald-100 text-emerald-700"
-                        : "bg-slate-100 text-slate-700"
-                    }
-                  >
-                    {part.attended ? "Đã điểm danh" : "Chưa điểm danh"}
-                  </Badge>
-                )}
               </Card>
             ))
           )}
@@ -1047,73 +785,6 @@ export function ConferenceDetailPage() {
         </div>
       )}
 
-      {/* QR Code Modal */}
-      <Modal
-        open={qrModalOpen}
-        onClose={() => setQrModalOpen(false)}
-        title="Mã điểm danh của bạn"
-        size="sm"
-      >
-        <div className="flex flex-col items-center py-4">
-          {myRegistration && attendanceSession && (
-            <>
-              <div className="rounded-xl border-2 border-slate-200 bg-white p-6">
-                <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(attendanceSession.code)}`}
-                  alt="QR Code"
-                  className="h-48 w-48"
-                />
-              </div>
-              <p className="mt-4 text-center text-sm text-slate-500">
-                Hãy trình mã này cho ban tổ chức khi điểm danh
-              </p>
-              <p className="mt-2 font-mono text-xs text-slate-400">
-                {attendanceSession.code}
-              </p>
-              {checkinOpen && !myRegistration.attended && (
-                <div className="mt-5 w-full border-t pt-4">
-                  <label className="block text-sm font-medium text-slate-700">
-                    Mã điểm danh
-                    <input
-                      value={selfCheckinCode}
-                      onChange={(event) =>
-                        setSelfCheckinCode(event.target.value)
-                      }
-                      placeholder="Nhập mã do ban tổ chức cung cấp"
-                      className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2"
-                    />
-                  </label>
-                  <Button
-                    variant="outline"
-                    className="mt-3 w-full"
-                    onClick={() => setScannerOpen((value) => !value)}
-                  >
-                    <QrCode className="h-4 w-4" />{" "}
-                    {scannerOpen ? "Đóng camera" : "Quét QR bằng camera"}
-                  </Button>
-                  {scannerOpen && (
-                    <video
-                      ref={scannerVideoRef}
-                      className="mt-3 aspect-video w-full rounded-lg bg-slate-900 object-cover"
-                      autoPlay
-                      muted
-                      playsInline
-                    />
-                  )}
-                  <Button
-                    className="mt-3 w-full"
-                    disabled={checkingIn || !selfCheckinCode.trim()}
-                    onClick={() => void handleSelfCheckin()}
-                  >
-                    {checkingIn ? "Đang điểm danh..." : "Xác nhận điểm danh"}
-                  </Button>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      </Modal>
-
       <Modal
         open={staffModalOpen}
         onClose={() => setStaffModalOpen(false)}
@@ -1189,12 +860,6 @@ function formatEventFormat(value?: string | null) {
     : value === "hybrid"
       ? "Kết hợp"
       : "Trực tiếp";
-}
-
-function toDateTimeInput(value: string) {
-  const date = new Date(value);
-  const offset = date.getTimezoneOffset();
-  return new Date(date.getTime() - offset * 60000).toISOString().slice(0, 16);
 }
 
 function formatConferenceDateTime(value: string) {

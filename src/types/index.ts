@@ -20,6 +20,12 @@ export type ReviewStatus = "assigned" | "in_progress" | "completed" | "declined"
 export type ReviewRecommendation = "accept" | "reject" | "revise";
 
 export type CertificateType = "attendance" | "presentation";
+export type CertificateWorkflowStatus =
+  | "pending_confirmation"
+  | "submitted"
+  | "issued"
+  | "needs_changes"
+  | "revoked";
 
 export type EventFormat = "online" | "offline" | "hybrid";
 
@@ -159,7 +165,7 @@ export interface Review {
 
 export interface Session {
   tags?: string[];
-  difficulty?: "general" | "beginner" | "advanced";
+  session_type?: "opening" | "reporting" | "closing";
   resource_deadline?: string | null;
   parent_session_id?: string | null;
   id: string;
@@ -172,6 +178,8 @@ export interface Session {
   committee_id: string | null;
   speaker_id: string | null;
   paper_id: string | null;
+  chair_id?: string | null;
+  secretary_id?: string | null;
   created_at: string;
   speaker?: Profile;
   paper?: Paper;
@@ -183,6 +191,7 @@ export interface ConferenceCommittee {
   id: string;
   conference_id: string;
   name: string;
+  topic_id?: string | null;
   room: string;
   description: string;
   created_at: string;
@@ -229,6 +238,12 @@ export interface Certificate {
   conference_id: string;
   user_id: string;
   certificate_type: CertificateType;
+  workflow_status?: CertificateWorkflowStatus;
+  confirmed_name?: string;
+  confirmed_organization?: string;
+  submitted_at?: string | null;
+  reviewed_at?: string | null;
+  review_notes?: string;
   issued_at: string;
   signature_hash?: string | null;
   paper_id?: string | null;

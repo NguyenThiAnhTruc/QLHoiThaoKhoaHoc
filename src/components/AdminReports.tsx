@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { useAuth } from '@/context/useAuth';
 
-const paperLabels: Record<string, string> = { ...PAPER_STATUS_LABELS, camera_ready: 'Camera-ready' };
+const paperLabels: Record<string, string> = { ...PAPER_STATUS_LABELS, camera_ready: 'Bản hoàn thiện' };
 const colors = ['#0d9488', '#3b82f6', '#f59e0b', '#8b5cf6', '#f43f5e', '#64748b'];
 const number = (value: number | null, suffix = '') => value === null ? 'Chưa có dữ liệu' : `${value.toLocaleString('vi-VN', { maximumFractionDigits: 1 })}${suffix}`;
 type Metric = { label: string; value: number | null; suffix?: string };
@@ -59,7 +59,7 @@ export function AdminReports() {
   if (error || !data || !report) return <Card className="p-6"><p role="alert">{error || 'Chưa có dữ liệu'}</p><Button onClick={() => setReload(value => value + 1)}>Thử lại</Button></Card>;
   const groups: { title: string; metrics: Metric[]; note?: string }[] = [
     { title: 'Thống kê hội thảo', metrics: [...Object.entries(report.conferenceStatuses).map(([key, value]) => ({ label: CONFERENCE_STATUS_LABELS[key as keyof typeof CONFERENCE_STATUS_LABELS], value })), { label: 'Đăng ký trung bình / hội thảo trong phạm vi chọn', value: report.averageRegistrations }] },
-    { title: 'Thống kê bài báo', metrics: [{ label: 'Tổng bài đã nộp', value: report.totals.papers }, ...Object.entries(report.paperStatuses).map(([key, value]) => ({ label: paperLabels[key], value: key === 'camera_ready' && data.events === null ? null : value })), { label: 'Tỷ lệ Accept', value: report.acceptRate, suffix: '%' }, { label: 'Tỷ lệ Reject', value: report.rejectRate, suffix: '%' }], note: 'Tỷ lệ tính trên bài đã có quyết định Accept hoặc Reject. Camera-ready là bài được chấp nhận và đã tải phiên bản mới sau khi chấp nhận; được tách khỏi Accepted để tránh đếm trùng.' },
+    { title: 'Thống kê bài báo', metrics: [{ label: 'Tổng bài đã nộp', value: report.totals.papers }, ...Object.entries(report.paperStatuses).map(([key, value]) => ({ label: paperLabels[key], value: key === 'camera_ready' && data.events === null ? null : value })), { label: 'Tỷ lệ chấp nhận', value: report.acceptRate, suffix: '%' }, { label: 'Tỷ lệ từ chối', value: report.rejectRate, suffix: '%' }], note: 'Tỷ lệ tính trên bài đã có quyết định chấp nhận hoặc từ chối. Bản hoàn thiện là bài đã được chấp nhận và đã tải phiên bản mới; được tách khỏi nhóm bài đã chấp nhận để tránh đếm trùng.' },
     { title: 'Thống kê phản biện', metrics: [{ label: 'Bài đã phân reviewer', value: report.assigned }, { label: 'Bài chưa phân reviewer', value: report.unassigned }, { label: 'Review hoàn thành', value: report.completedReviews }, { label: 'Review đang chờ / đang thực hiện', value: report.pendingReviews }, { label: 'Review quá hạn', value: report.overdue }, { label: 'Thời gian phản biện trung bình', value: report.averageReviewDays, suffix: ' ngày' }], note: `Theo các bài nộp trong khoảng chọn. Quá hạn là review chưa hoàn thành và đã qua hạn phản biện của hội thảo tại thời điểm xem; nằm trong số đang chờ. Trung bình dựa trên ${report.durationSamples} review có đủ mốc phân công và hoàn thành.` },
     { title: 'Thống kê người tham dự', metrics: [{ label: 'Lượt đăng ký còn hiệu lực', value: report.totals.registrations }, { label: 'Đã check-in', value: report.totals.checkins }, { label: 'Chưa check-in', value: report.unchecked }, { label: 'Lượt hủy đăng ký', value: report.cancelled }, { label: 'Tỷ lệ check-in', value: report.checkinRate, suffix: '%' }], note: 'Check-in phản ánh trạng thái hiện tại của các lượt đăng ký trong khoảng ngày chọn. Hủy đăng ký tính theo ngày hủy; một người có thể đăng ký và hủy nhiều lần.' },
     { title: 'Thống kê người dùng', metrics: [...Object.entries(report.roles).map(([key, value]) => ({ label: ROLE_LABELS[key as keyof typeof ROLE_LABELS], value })), { label: 'Tài khoản mới trong kỳ', value: report.newUsers }], note: 'Tổng tài khoản và vai trò là số hiện tại trên toàn hệ thống, độc lập với bộ lọc. Tài khoản mới và bảng theo tháng áp dụng khoảng ngày tạo tài khoản đã chọn.' },
@@ -78,9 +78,9 @@ export function AdminReports() {
     const rows: (string | number | null)[][] = [
       ['BÁO CÁO THỐNG KÊ'], ['Từ ngày', filter.from], ['Đến ngày', filter.to], ['Hội thảo', conferenceName],
       ['Trạng thái hội thảo', filter.status ? CONFERENCE_STATUS_LABELS[filter.status as keyof typeof CONFERENCE_STATUS_LABELS] : 'Tất cả'],
-      ['Thời điểm xuất', new Date().toISOString()], ['Ghi nhận hủy / camera-ready từ', report.trackingSince],
+      ['Thời điểm xuất', new Date().toISOString()], ['Ghi nhận hủy / bản hoàn thiện từ', report.trackingSince],
       ['Quy ước', 'Hội thảo: ngày bắt đầu; bài: ngày nộp; đăng ký: ngày đăng ký; chứng nhận: ngày cấp. Tổng người dùng và vai trò: toàn hệ thống hiện tại; tài khoản mới: theo ngày tạo trong kỳ. Trạng thái hiện tại.'],
-      ['Giới hạn', 'Không phục dựng hủy đăng ký hoặc camera-ready trước thời điểm bắt đầu ghi nhận.'],
+      ['Giới hạn', 'Không phục dựng hủy đăng ký hoặc bản hoàn thiện trước thời điểm bắt đầu ghi nhận.'],
       [], ['TỔNG QUAN', 'Số lượng'], ...totals.map(metric => [metric.label, metric.value]),
       ...groups.flatMap(group => [[], [group.title, 'Giá trị', 'Đơn vị'], ...group.metrics.map(metric => [metric.label, metric.value, metric.suffix || '']), ...(group.note ? [['Ghi chú', group.note]] : [])]),
       [], ['THEO THÁNG', 'Bài báo', 'Đăng ký', 'Tài khoản mới'], ...report.months.map(month => [month.label, month.papers, month.registrations, month.users]),
@@ -98,7 +98,7 @@ export function AdminReports() {
       {dateError && <p role="alert" className="text-sm text-rose-600">{dateError}</p>}
     </form>
     <div className="space-y-2 text-xs leading-5 text-slate-500"><p className="font-semibold text-teal-800">Đang xem: {filter.from} → {filter.to} · {conferenceName} · {filter.status ? CONFERENCE_STATUS_LABELS[filter.status as keyof typeof CONFERENCE_STATUS_LABELS] : 'Tất cả trạng thái'}</p><p>Khoảng ngày tính cả hai đầu theo giờ trên thiết bị. Hội thảo tính theo ngày bắt đầu; bài báo theo ngày nộp; đăng ký theo ngày đăng ký; chứng nhận theo ngày cấp. Trạng thái và check-in là hiện tại. Tổng người dùng và vai trò là số hiện tại toàn hệ thống; tài khoản mới tính theo ngày tạo trong kỳ. “3 tháng” gồm tháng hiện tại và hai tháng trước, đến hôm nay.</p>
-      <p className="rounded-lg bg-amber-50 p-3 text-amber-800">{data.events === null ? 'Chưa tải được lịch sử hủy đăng ký / camera-ready. Các chỉ số này chưa đủ dữ liệu; cần áp dụng migration báo cáo và tải lại.' : `Hủy đăng ký và camera-ready được ghi nhận từ ${report.trackingSince ? new Date(report.trackingSince).toLocaleString('vi-VN') : 'khi bắt đầu theo dõi'}. Không có lịch sử đầy đủ trước thời điểm này.`}</p>
+      <p className="rounded-lg bg-amber-50 p-3 text-amber-800">{data.events === null ? 'Chưa tải được lịch sử hủy đăng ký / bản hoàn thiện. Các chỉ số này chưa đủ dữ liệu; cần áp dụng migration báo cáo và tải lại.' : `Hủy đăng ký và bản hoàn thiện được ghi nhận từ ${report.trackingSince ? new Date(report.trackingSince).toLocaleString('vi-VN') : 'khi bắt đầu theo dõi'}. Không có lịch sử đầy đủ trước thời điểm này.`}</p>
     </div>
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{totals.map(metric => <Card key={metric.label} className="p-5"><p className="text-xs font-medium text-slate-500">{metric.label}</p><p className="mt-2 text-3xl font-bold text-teal-700">{number(metric.value)}</p></Card>)}</div>
     <div className="grid gap-5 xl:grid-cols-2">

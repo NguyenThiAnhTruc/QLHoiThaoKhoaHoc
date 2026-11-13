@@ -911,6 +911,7 @@ COMMIT;
 -- BEGIN SECTION 20260925_reviewer_workflow
 -- Apply after 20260925_author_workflow.sql.
 BEGIN;
+UPDATE public.profiles SET role = 'author' WHERE role = 'participant';
 ALTER TABLE public.profiles DROP CONSTRAINT IF EXISTS profiles_role_check;
 ALTER TABLE public.profiles ADD CONSTRAINT profiles_role_check CHECK (role IN ('admin','organizer','author','reviewer'));
 CREATE OR REPLACE FUNCTION public.require_author_reviewer()

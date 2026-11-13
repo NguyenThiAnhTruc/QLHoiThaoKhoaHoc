@@ -19,6 +19,7 @@ import {
   Menu,
   Mic2,
   Phone,
+  ShieldCheck,
   Share2,
   Sparkles,
   UserPlus,
@@ -36,6 +37,7 @@ import {
 } from "@/lib/constants";
 import type {
   Conference,
+  ConferenceCommittee,
   ConferenceAnnouncement,
   ConferenceSpeaker,
   EventFormat,
@@ -59,6 +61,176 @@ const formatLabels: Record<EventFormat, string> = {
   offline: "Trực tiếp",
   hybrid: "Kết hợp",
 };
+
+const DEMO_CONFERENCE_ID = "00000000-0000-4000-8000-000000000001";
+
+const demoConference: Conference = {
+  id: DEMO_CONFERENCE_ID,
+  title: "ICT INNOVATION FORUM 2027",
+  description:
+    "Diễn đàn khoa học và công nghệ với chủ đề Kiến tạo tương lai số bền vững, kết nối các nhà nghiên cứu, doanh nghiệp và sinh viên trong một chương trình học thuật giàu tính ứng dụng.",
+  start_date: "2027-02-20T08:00:00+07:00",
+  end_date: "2027-02-20T17:00:00+07:00",
+  location: "Trung tâm Hội nghị Quốc gia, Hà Nội",
+  status: "open",
+  organizer_id: DEMO_CONFERENCE_ID,
+  cover_image_url:
+    "https://images.unsplash.com/photo-1505373877841-8d25f7d46678?auto=format&fit=crop&w=1400&q=85",
+  max_participants: 400,
+  submission_deadline: "2027-01-05T23:59:00+07:00",
+  review_deadline: "2027-01-20T23:59:00+07:00",
+  registration_deadline: "2027-02-12T23:59:00+07:00",
+  camera_ready_deadline: "2027-02-01T23:59:00+07:00",
+  blind_review: true,
+  review_enabled: true,
+  require_accepted_paper: false,
+  auto_certificates: true,
+  auto_surveys: true,
+  field: "Công nghệ thông tin",
+  topics: ["Trí tuệ nhân tạo", "Chuyển đổi số", "IoT", "Dữ liệu mở"],
+  event_format: "offline",
+  is_featured: true,
+  is_schedule_public: true,
+  contact_name: "Ban thư ký ICT Innovation Forum",
+  contact_email: "ictforum@confmanager.vn",
+  contact_phone: "024 7300 2027",
+  created_at: "2026-10-01T08:00:00+07:00",
+  updated_at: "2026-11-01T08:00:00+07:00",
+};
+
+const demoCommittees: ConferenceCommittee[] = [
+  {
+    id: "00000000-0000-4000-8000-000000000101",
+    conference_id: DEMO_CONFERENCE_ID,
+    name: "Tiểu ban Trí tuệ nhân tạo (AI)",
+    room: "Phòng A1 · Tầng 2",
+    description:
+      "Chủ trì: PGS.TS. Nguyễn Minh Anh · Thư ký: ThS. Lê Thu Hà",
+    created_at: "2026-10-01T08:00:00+07:00",
+  },
+  {
+    id: "00000000-0000-4000-8000-000000000102",
+    conference_id: DEMO_CONFERENCE_ID,
+    name: "Tiểu ban Chuyển đổi số",
+    room: "Phòng A2 · Tầng 2",
+    description:
+      "Chủ trì: TS. Trần Quốc Bảo · Thư ký: ThS. Phạm Ngọc Mai",
+    created_at: "2026-10-01T08:00:00+07:00",
+  },
+  {
+    id: "00000000-0000-4000-8000-000000000103",
+    conference_id: DEMO_CONFERENCE_ID,
+    name: "Tiểu ban IoT và hệ thống thông minh",
+    room: "Phòng A3 · Tầng 2",
+    description:
+      "Chủ trì: TS. Vũ Hoàng Nam · Thư ký: Nguyễn Hải Yến",
+    created_at: "2026-10-01T08:00:00+07:00",
+  },
+];
+
+const demoSessions: Session[] = [
+  {
+    id: "00000000-0000-4000-8000-000000000201",
+    conference_id: DEMO_CONFERENCE_ID,
+    title: "Phiên khai mạc",
+    description: "Đón tiếp đại biểu, phát biểu chào mừng và diễn văn khai mạc.",
+    start_time: "2027-02-20T08:00:00+07:00",
+    end_time: "2027-02-20T09:00:00+07:00",
+    room: "Hội trường chính",
+    committee_id: null,
+    speaker_id: null,
+    paper_id: null,
+    created_at: "2026-10-01T08:00:00+07:00",
+  },
+  {
+    id: "00000000-0000-4000-8000-000000000202",
+    conference_id: DEMO_CONFERENCE_ID,
+    title: "Phiên báo cáo",
+    description:
+      "Ba tiểu ban song song theo các chủ đề trọng tâm của hội thảo.",
+    start_time: "2027-02-20T09:15:00+07:00",
+    end_time: "2027-02-20T15:00:00+07:00",
+    room: "Tầng 2 · Ba tiểu ban song song",
+    committee_id: null,
+    speaker_id: null,
+    paper_id: null,
+    created_at: "2026-10-01T08:00:00+07:00",
+  },
+  ...demoCommittees.map((committee, index): Session => ({
+    id: `00000000-0000-4000-8000-00000000020${index + 3}`,
+    conference_id: DEMO_CONFERENCE_ID,
+    title: committee.name,
+    description:
+      "Danh sách bài báo đã được chấp nhận được phân nhóm theo đúng chủ đề tiểu ban.",
+    start_time: "2027-02-20T09:15:00+07:00",
+    end_time: "2027-02-20T15:00:00+07:00",
+    room: committee.room,
+    committee_id: committee.id,
+    speaker_id: null,
+    paper_id: null,
+    parent_session_id: "00000000-0000-4000-8000-000000000202",
+    created_at: "2026-10-01T08:00:00+07:00",
+    committee,
+  })),
+  {
+    id: "00000000-0000-4000-8000-000000000206",
+    conference_id: DEMO_CONFERENCE_ID,
+    title: "Phiên bế mạc",
+    description:
+      "Tổng kết, trao chứng nhận và công bố định hướng hợp tác cho năm tiếp theo.",
+    start_time: "2027-02-20T15:30:00+07:00",
+    end_time: "2027-02-20T16:30:00+07:00",
+    room: "Hội trường chính",
+    committee_id: null,
+    speaker_id: null,
+    paper_id: null,
+    created_at: "2026-10-01T08:00:00+07:00",
+  },
+];
+
+const demoSpeakers: ConferenceSpeaker[] = [
+  {
+    id: "demo-speaker-1",
+    conference_id: DEMO_CONFERENCE_ID,
+    full_name: "GS.TS. Nguyễn Minh Anh",
+    title: "Trưởng ban tổ chức · Chủ trì tiểu ban AI",
+    organization: "Đại học Quốc gia Hà Nội",
+    bio: "",
+    avatar_url: "",
+    is_keynote: true,
+    display_order: 1,
+    created_at: "2026-10-01T08:00:00+07:00",
+  },
+  {
+    id: "demo-speaker-2",
+    conference_id: DEMO_CONFERENCE_ID,
+    full_name: "TS. Trần Quốc Bảo",
+    title: "Phó trưởng ban tổ chức · Chủ trì tiểu ban Chuyển đổi số",
+    organization: "Viện Công nghệ thông tin",
+    bio: "",
+    avatar_url: "",
+    is_keynote: true,
+    display_order: 2,
+    created_at: "2026-10-01T08:00:00+07:00",
+  },
+];
+
+const demoAnnouncements: ConferenceAnnouncement[] = [
+  {
+    id: "demo-announcement-1",
+    conference_id: DEMO_CONFERENCE_ID,
+    title: "Đã mở đăng ký tham dự",
+    message:
+      "Đăng ký trước ngày 12/02/2027 để nhận bộ tài liệu hội thảo và xác nhận chỗ ngồi.",
+    is_public: true,
+    published_at: "2026-11-01T08:00:00+07:00",
+    created_at: "2026-11-01T08:00:00+07:00",
+  },
+];
+
+function isDemoConference(conference: Conference) {
+  return conference.id === DEMO_CONFERENCE_ID;
+}
 
 export function PublicPortal({ onSignIn, onSignUp }: PublicPortalProps) {
   const [conferences, setConferences] = useState<Conference[]>([]);
@@ -85,17 +257,26 @@ export function PublicPortal({ onSignIn, onSignUp }: PublicPortalProps) {
         .from("conferences")
         .select("*")
         .order("start_date", { ascending: true });
-      setConferences(
-        ((conferenceRows ?? []) as unknown as Conference[]).filter(
-          (conference) => getConferenceDisplayStatus(conference) !== "draft",
-        ),
+      const publishedConferences = (
+        (conferenceRows ?? []) as unknown as Conference[]
+      ).filter(
+        (conference) =>
+          !["draft", "completed"].includes(
+            getConferenceDisplayStatus(conference),
+          ),
       );
+      setConferences([
+        demoConference,
+        ...publishedConferences.filter(
+          (conference) => conference.id !== DEMO_CONFERENCE_ID,
+        ),
+      ]);
       setLoading(false);
 
       const requestedId = new URLSearchParams(window.location.search).get(
         "conference",
       );
-      const requested = conferenceRows?.find(
+      const requested = [demoConference, ...publishedConferences].find(
         (conference) => conference.id === requestedId,
       );
       if (requested) openConference(requested as Conference);
@@ -137,6 +318,19 @@ export function PublicPortal({ onSignIn, onSignUp }: PublicPortalProps) {
 
   async function openConference(conference: Conference) {
     setSelectedConference(conference);
+    if (isDemoConference(conference)) {
+      setSessions(demoSessions);
+      setSpeakers(demoSpeakers);
+      setDetailAnnouncements(demoAnnouncements);
+      setDetailLoading(false);
+      window.history.replaceState(
+        {},
+        "",
+        `${window.location.pathname}?conference=${conference.id}`,
+      );
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
     setDetailLoading(true);
     window.history.replaceState(
       {},
@@ -309,7 +503,7 @@ export function PublicPortal({ onSignIn, onSignUp }: PublicPortalProps) {
   return (
     <div className="min-h-screen bg-[#effaf7] text-slate-900">
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
+        <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-12">
           <a href="#top" className="group flex items-center gap-3">
             <span className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-lg bg-white transition-transform duration-300 group-hover:rotate-6 group-hover:scale-105">
               <img
@@ -387,7 +581,7 @@ export function PublicPortal({ onSignIn, onSignUp }: PublicPortalProps) {
         </div>
         {mobileMenuOpen && (
           <nav className="border-t border-slate-100 bg-white px-4 py-3 shadow-lg md:hidden">
-            <div className="mx-auto grid max-w-7xl gap-1">
+            <div className="mx-auto grid max-w-[1440px] gap-1">
               <a
                 className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-700 hover:bg-emerald-50 hover:text-teal-700"
                 href="#top"
@@ -419,49 +613,53 @@ export function PublicPortal({ onSignIn, onSignUp }: PublicPortalProps) {
 
       <main id="top">
         {loading && (
-          <div className="mx-auto max-w-7xl px-4 pt-4 text-sm text-slate-500 sm:px-6 lg:px-8">
+          <div className="mx-auto max-w-[1440px] px-4 pt-4 text-sm text-slate-500 sm:px-6 lg:px-12">
             Đang tải hội thảo công khai...
           </div>
         )}
-        <section className="border-b border-white bg-[#effaf7]">
-          <div className="mx-auto grid max-w-7xl gap-10 px-4 py-12 sm:px-6 lg:grid-cols-[1fr_0.78fr] lg:items-center lg:px-8 lg:py-16">
+        <section className="relative overflow-hidden border-b border-slate-200 bg-slate-950 text-white">
+          <div className="pointer-events-none absolute -right-32 -top-32 h-96 w-96 rounded-full bg-teal-500/20 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-48 left-1/3 h-96 w-96 rounded-full bg-sky-500/10 blur-3xl" />
+          <div className="relative mx-auto grid max-w-[1440px] gap-12 px-4 py-14 sm:px-6 lg:grid-cols-[1fr_0.78fr] lg:items-center lg:px-12 lg:py-24">
             <div>
-              <p className="flex items-center gap-2 text-sm font-semibold text-teal-700">
+              <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-teal-400/30 bg-teal-400/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-teal-200">
                 <Sparkles className="h-4 w-4 motion-safe:animate-pulse" />
-                CỔNG THÔNG TIN HỘI THẢO
-              </p>
-              <h1 className="mt-3 max-w-2xl text-4xl font-bold leading-tight sm:text-5xl">
-                Quản lý và tham gia hội thảo dễ dàng hơn.
+                Cổng thông tin hội thảo khoa học
+              </div>
+              <h1 className="max-w-3xl text-4xl font-bold leading-[1.08] tracking-tight sm:text-5xl lg:text-7xl">
+                Kết nối tri thức.
+                <span className="block text-teal-300">Kiến tạo tương lai.</span>
               </h1>
-              <p className="mt-5 max-w-2xl text-base leading-7 text-slate-600">
-                Khám phá hội thảo phù hợp, theo dõi thời hạn, đăng ký tham dự và
-                quản lý quá trình nộp bài trên một nền tảng duy nhất.
+              <p className="mt-6 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">
+                Một không gian chuyên nghiệp để khám phá hội thảo, công bố
+                nghiên cứu, kết nối cộng đồng học thuật và theo dõi trọn vẹn
+                hành trình tham dự.
               </p>
               <div className="mt-5 flex items-center gap-2">
                 <HeroAccent
                   label="Hội thảo"
-                  tone="border-teal-200 bg-white text-teal-700"
+                  tone="border-teal-400/30 bg-white/10 text-teal-200"
                   delay="0ms"
                 >
                   <CalendarDays className="h-4 w-4" />
                 </HeroAccent>
                 <HeroAccent
                   label="Bài báo khoa học"
-                  tone="border-sky-200 bg-white text-sky-700"
+                  tone="border-sky-400/30 bg-white/10 text-sky-200"
                   delay="180ms"
                 >
                   <FileText className="h-4 w-4" />
                 </HeroAccent>
                 <HeroAccent
                   label="Phản biện"
-                  tone="border-violet-200 bg-white text-violet-700"
+                  tone="border-violet-400/30 bg-white/10 text-violet-200"
                   delay="360ms"
                 >
                   <BookOpenCheck className="h-4 w-4" />
                 </HeroAccent>
                 <HeroAccent
                   label="Chứng nhận"
-                  tone="border-amber-200 bg-white text-amber-700"
+                  tone="border-amber-400/30 bg-white/10 text-amber-200"
                   delay="540ms"
                 >
                   <Award className="h-4 w-4" />
@@ -469,6 +667,7 @@ export function PublicPortal({ onSignIn, onSignUp }: PublicPortalProps) {
               </div>
               <div className="mt-7 flex flex-wrap gap-3">
                 <Button
+                  className="bg-teal-500 hover:bg-teal-400"
                   onClick={() =>
                     document
                       .getElementById("explore")
@@ -477,7 +676,7 @@ export function PublicPortal({ onSignIn, onSignUp }: PublicPortalProps) {
                 >
                   <Compass className="h-4 w-4" /> Khám phá hội thảo
                 </Button>
-                <Button variant="outline" onClick={onSignUp}>
+                <Button variant="outline" className="border-white/25 bg-white/10 text-white hover:bg-white/20 hover:text-white" onClick={onSignUp}>
                   Đăng ký ngay <ArrowRight className="h-4 w-4" />
                 </Button>
               </div>
@@ -503,6 +702,10 @@ export function PublicPortal({ onSignIn, onSignUp }: PublicPortalProps) {
                   label="Chủ đề"
                 />
               </div>
+              <div className="mt-7 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-slate-400">
+                <span className="inline-flex items-center gap-1.5"><ShieldCheck className="h-4 w-4 text-teal-300" /> Nền tảng học thuật tin cậy</span>
+                <span className="inline-flex items-center gap-1.5"><Users className="h-4 w-4 text-teal-300" /> Cộng đồng nghiên cứu kết nối</span>
+              </div>
             </div>
             <HeroConference
               conference={heroConference}
@@ -512,9 +715,9 @@ export function PublicPortal({ onSignIn, onSignUp }: PublicPortalProps) {
         </section>
 
         <section className="border-b border-white bg-white">
-          <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
+          <div className="mx-auto max-w-[1440px] px-4 py-14 sm:px-6 lg:px-12 lg:py-16">
             <div className="max-w-2xl">
-              <h2 className="text-2xl font-bold">Tại sao chọn ConfManager?</h2>
+              <h2 className="text-2xl font-bold lg:text-3xl">Tại sao chọn ConfManager?</h2>
               <p className="mt-2 text-sm leading-6 text-slate-600">
                 Mọi thông tin và công việc quan trọng của một hội thảo được tập
                 trung rõ ràng.
@@ -546,9 +749,9 @@ export function PublicPortal({ onSignIn, onSignUp }: PublicPortalProps) {
         </section>
 
         <section id="explore" className="border-y border-white bg-[#effaf7]">
-          <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
+          <div className="mx-auto max-w-[1440px] px-4 py-14 sm:px-6 lg:px-12 lg:py-16">
             <div className="text-center">
-              <h2 className="text-2xl font-bold">Khám phá hội thảo</h2>
+              <h2 className="text-2xl font-bold lg:text-3xl">Khám phá hội thảo</h2>
               <p className="mt-2 text-sm text-slate-600">
                 Chọn một hội thảo phù hợp để xem thời gian, địa điểm và các
                 deadline quan trọng.
@@ -581,9 +784,9 @@ export function PublicPortal({ onSignIn, onSignUp }: PublicPortalProps) {
         </section>
 
         <section className="border-y border-white bg-white">
-          <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
+          <div className="mx-auto max-w-[1440px] px-4 py-14 sm:px-6 lg:px-12 lg:py-16">
             <div className="max-w-2xl">
-              <h2 className="text-2xl font-bold">Quy trình tham gia</h2>
+              <h2 className="text-2xl font-bold lg:text-3xl">Quy trình tham gia</h2>
               <p className="mt-2 text-sm leading-6 text-slate-600">
                 Bắt đầu từ một tài khoản và theo dõi trọn vẹn hành trình hội
                 thảo của bạn.
@@ -595,7 +798,7 @@ export function PublicPortal({ onSignIn, onSignUp }: PublicPortalProps) {
 
         <section
           id="faq"
-          className="mx-auto grid max-w-7xl gap-6 px-4 py-12 sm:px-6 md:grid-cols-3 lg:px-8"
+          className="mx-auto grid max-w-[1440px] gap-8 px-4 py-14 sm:px-6 md:grid-cols-3 lg:px-12 lg:py-16"
         >
           <div>
             <h2 className="text-2xl font-bold">Sẵn sàng tham gia?</h2>
@@ -659,7 +862,7 @@ export function PublicPortal({ onSignIn, onSignUp }: PublicPortalProps) {
         </section>
       </main>
       <footer className="border-t border-slate-200 bg-slate-900 text-slate-300">
-        <div className="mx-auto grid max-w-7xl gap-8 px-4 py-10 sm:px-6 md:grid-cols-4 lg:px-8">
+        <div className="mx-auto grid max-w-[1440px] gap-8 px-4 py-10 sm:px-6 md:grid-cols-4 lg:px-12">
           <div>
             <p className="font-bold text-white">ConfManager</p>
             <p className="mt-2 text-sm leading-6">
@@ -683,7 +886,7 @@ export function PublicPortal({ onSignIn, onSignUp }: PublicPortalProps) {
             links={["Điều khoản sử dụng", "Chính sách bảo mật"]}
           />
         </div>
-        <div className="mx-auto max-w-7xl border-t border-slate-700 px-4 py-4 text-xs text-slate-400 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-[1440px] border-t border-slate-700 px-4 py-4 text-xs text-slate-400 sm:px-6 lg:px-12">
           © 2026 ConfManager. Hệ thống quản lý hội thảo khoa học.
         </div>
       </footer>
@@ -835,7 +1038,7 @@ function ExploreBoard({
   ];
 
   return (
-    <div className="mx-auto mt-8 grid max-w-7xl gap-5 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="mx-auto mt-8 grid max-w-[1440px] gap-5 sm:grid-cols-2 xl:grid-cols-4">
       {columns.map((column, index) => (
         <ExploreColumn
           key={column.title}
@@ -879,11 +1082,12 @@ function ExploreColumn({
     const track = trackRef.current;
     if (!track) return;
     const activeSlide = track.children.item(activeIndex) as HTMLElement | null;
-    activeSlide?.scrollIntoView({
-      behavior: "smooth",
-      block: "nearest",
-      inline: "start",
-    });
+    if (activeSlide) {
+      track.scrollTo({
+        left: activeSlide.offsetLeft,
+        behavior: "smooth",
+      });
+    }
   }, [activeIndex]);
 
   function syncActiveCard() {
@@ -1058,14 +1262,15 @@ function HeroConference({
       />
       <div className="absolute inset-0 bg-slate-900/55 transition-colors duration-500 group-hover:bg-slate-900/45" />
       <div className="absolute inset-3 rounded-[20px_4px_20px_4px] border border-white/20 transition-[inset,border-radius] duration-500 group-hover:inset-4 group-hover:rounded-[4px_20px_4px_20px]" />
-      <div className="relative flex min-h-72 flex-col justify-end p-6 text-white">
-        <span className="flex w-fit items-center gap-1.5 rounded-full bg-teal-500 px-2.5 py-1 text-xs font-semibold">
+      <div className="relative flex min-h-80 flex-col justify-end p-6 text-white sm:p-8">
+        <span className="flex w-fit items-center gap-1.5 rounded-full border border-white/20 bg-teal-500/90 px-3 py-1.5 text-xs font-semibold shadow-lg backdrop-blur">
           <span className="h-1.5 w-1.5 rounded-full bg-white motion-safe:animate-pulse" />
           {isRegistrationOpen(conference)
             ? "Đang mở đăng ký"
             : formatLabels[conference.event_format]}
         </span>
-        <h2 className="mt-3 text-xl font-bold leading-snug">
+        <p className="mt-5 text-xs font-semibold uppercase tracking-[0.18em] text-teal-200">Hội thảo nổi bật</p>
+        <h2 className="mt-2 text-2xl font-bold leading-snug sm:text-3xl">
           {conference.title}
         </h2>
         <p className="mt-2 flex items-center gap-2 text-sm text-slate-100">
@@ -1166,7 +1371,7 @@ function PublicConferenceDetail({
           </button>
           <div className="flex gap-2">
             <Button variant="outline" onClick={onCopy}>
-              <Copy className="h-4 w-4" /> Copy link
+              <Copy className="h-4 w-4" /> Sao chép liên kết
             </Button>
             <Button variant="outline" onClick={onShare}>
               <Share2 className="h-4 w-4" /> Chia sẻ
@@ -1236,7 +1441,7 @@ function PublicConferenceDetail({
                 />
                 <Info
                   icon={<Clock3 />}
-                  label="Deadline"
+                  label="Hạn chót"
                   value={deadlineLabel(conference)}
                 />
               </div>
@@ -1253,6 +1458,117 @@ function PublicConferenceDetail({
                 </div>
               )}
             </DetailSection>
+            {isDemoConference(conference) && (
+              <>
+                <DetailSection title="Cấu trúc chương trình">
+                  <div className="grid gap-3 md:grid-cols-3">
+                    {demoSessions
+                      .filter((session) => !session.committee_id)
+                      .map((session, index) => (
+                        <article
+                          key={session.id}
+                          className="relative overflow-hidden rounded-xl border border-slate-200 bg-slate-50 p-4"
+                        >
+                          <span className="text-xs font-bold uppercase tracking-[0.18em] text-teal-700">
+                            0{index + 1} · {formatTimeRange(session)}
+                          </span>
+                          <h3 className="mt-2 font-semibold">{session.title}</h3>
+                          <p className="mt-2 text-sm leading-6 text-slate-600">
+                            {session.description}
+                          </p>
+                          <p className="mt-3 flex items-center gap-1.5 text-xs font-medium text-slate-500">
+                            <MapPin className="h-3.5 w-3.5 text-teal-600" />
+                            {session.room}
+                          </p>
+                        </article>
+                      ))}
+                  </div>
+                </DetailSection>
+                <DetailSection title="Phiên báo cáo · 03 tiểu ban chuyên môn">
+                  <p className="mb-4 text-sm leading-6 text-slate-600">
+                    Các bài báo đã được chấp nhận sẽ được ban tổ chức phân nhóm theo chủ đề.
+                    Người chủ trì và thư ký đều thuộc Ban tổ chức hoặc Ban thư ký
+                    của hội thảo.
+                  </p>
+                  <div className="grid gap-3 md:grid-cols-3">
+                    {demoCommittees.map((committee) => (
+                      <article
+                        key={committee.id}
+                        className="rounded-xl border border-teal-100 bg-teal-50/60 p-4"
+                      >
+                        <div className="flex items-start gap-2">
+                          <span className="rounded-lg bg-white p-2 text-teal-700 shadow-sm">
+                            <Users className="h-4 w-4" />
+                          </span>
+                          <h3 className="font-semibold leading-5">
+                            {committee.name}
+                          </h3>
+                        </div>
+                        <p className="mt-3 flex items-center gap-2 text-sm text-slate-600">
+                          <MapPin className="h-4 w-4 text-teal-700" />
+                          {committee.room}
+                        </p>
+                        <p className="mt-2 text-sm leading-6 text-slate-600">
+                          {committee.description}
+                        </p>
+                        <p className="mt-3 rounded-lg bg-white px-3 py-2 text-xs font-medium text-teal-800">
+                          09:15 – 15:00 · Bài báo theo đúng chủ đề
+                        </p>
+                      </article>
+                    ))}
+                  </div>
+                </DetailSection>
+                <DetailSection title="Hướng dẫn gửi bài & lệ phí">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="rounded-xl bg-slate-50 p-4">
+                      <h3 className="flex items-center gap-2 font-semibold">
+                        <FileText className="h-4 w-4 text-teal-700" />
+                        Gửi bài tham luận
+                      </h3>
+                      <ol className="mt-3 space-y-2 text-sm leading-6 text-slate-600">
+                        <li>01 · Tạo tài khoản tác giả và chọn hội thảo.</li>
+                        <li>02 · Tải bản PDF theo mẫu, thêm tóm tắt và từ khóa.</li>
+                        <li>03 · Theo dõi phản biện, chỉnh sửa và nộp bản hoàn thiện.</li>
+                      </ol>
+                    </div>
+                    <div className="rounded-xl bg-amber-50 p-4">
+                      <h3 className="flex items-center gap-2 font-semibold">
+                        <Award className="h-4 w-4 text-amber-700" />
+                        Lệ phí tham gia
+                      </h3>
+                      <dl className="mt-3 space-y-2 text-sm text-slate-600">
+                        <div className="flex justify-between gap-3">
+                          <dt>Sinh viên</dt><dd className="font-semibold">300.000đ</dd>
+                        </div>
+                        <div className="flex justify-between gap-3">
+                          <dt>Học viên / nghiên cứu sinh</dt><dd className="font-semibold">500.000đ</dd>
+                        </div>
+                        <div className="flex justify-between gap-3">
+                          <dt>Giảng viên / doanh nghiệp</dt><dd className="font-semibold">800.000đ</dd>
+                        </div>
+                      </dl>
+                    </div>
+                  </div>
+                </DetailSection>
+                <DetailSection title="Đơn vị đồng tổ chức & tài trợ">
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    {[
+                      ["Đại học Quốc gia Hà Nội", "Đơn vị chủ trì"],
+                      ["Viện Công nghệ thông tin", "Đồng tổ chức"],
+                      ["TechVision Vietnam", "Nhà tài trợ vàng"],
+                    ].map(([name, role]) => (
+                      <div
+                        key={name}
+                        className="rounded-xl border border-slate-200 p-4"
+                      >
+                        <p className="font-semibold">{name}</p>
+                        <p className="mt-1 text-xs text-teal-700">{role}</p>
+                      </div>
+                    ))}
+                  </div>
+                </DetailSection>
+              </>
+            )}
             <DetailSection title="Thông báo">
               <div className="space-y-3">
                 {announcements.length ? (
@@ -1306,7 +1622,7 @@ function PublicConferenceDetail({
                 <Empty text="Chưa có phiên nào được công bố." />
               )}
             </DetailSection>
-            <DetailSection title="Diễn giả và keynote">
+            <DetailSection title="Diễn giả chính và khách mời">
               {speakers.length ? (
                 <div className="grid gap-3 sm:grid-cols-2">
                   {speakers.map((speaker) => (
@@ -1321,7 +1637,7 @@ function PublicConferenceDetail({
                         <p className="font-semibold">{speaker.full_name}</p>
                         <p className="text-sm text-teal-700">
                           {speaker.is_keynote
-                            ? "Keynote speaker"
+                            ? "Diễn giả chính"
                             : speaker.title}
                         </p>
                         <p className="mt-1 text-xs text-slate-500">
@@ -1339,9 +1655,25 @@ function PublicConferenceDetail({
           <aside className="space-y-5">
             <DetailSection title="Liên hệ ban tổ chức">
               <div className="space-y-3 text-sm text-slate-600">
-                <p className="font-medium text-slate-900">
-                  {conference.contact_name || "Ban tổ chức hội thảo"}
-                </p>
+                {conference.contact_name ||
+                conference.contact_email ||
+                conference.contact_phone ? (
+                  <>
+                    <p className="font-medium text-slate-900">
+                      {conference.contact_name || "Ban tổ chức hội thảo"}
+                    </p>
+                    {!conference.contact_email &&
+                      !conference.contact_phone && (
+                        <p className="text-slate-500">
+                          Thông tin liên hệ chi tiết chưa được cập nhật.
+                        </p>
+                      )}
+                  </>
+                ) : (
+                  <p className="text-slate-500">
+                    Ban tổ chức chưa cập nhật thông tin liên hệ.
+                  </p>
+                )}
                 {conference.contact_email && (
                   <a
                     className="flex items-center gap-2 text-teal-700"
@@ -1366,7 +1698,7 @@ function PublicConferenceDetail({
                   ["Hạn nộp bài", conference.submission_deadline],
                   ["Hạn phản biện", conference.review_deadline],
                   ["Hạn đăng ký", conference.registration_deadline],
-                  ["Camera-ready", conference.camera_ready_deadline],
+                  ["Hạn nộp bản hoàn thiện", conference.camera_ready_deadline],
                 ].map(([label, value]) => (
                   <div key={label} className="flex justify-between gap-3">
                     <dt className="text-slate-500">{label}</dt>
@@ -1536,6 +1868,13 @@ function formatDate(value: string) {
     month: "2-digit",
     year: "numeric",
   });
+}
+function formatTimeRange(session: Session) {
+  const options: Intl.DateTimeFormatOptions = {
+    hour: "2-digit",
+    minute: "2-digit",
+  };
+  return `${new Date(session.start_time).toLocaleTimeString("vi-VN", options)} – ${new Date(session.end_time).toLocaleTimeString("vi-VN", options)}`;
 }
 function formatDateTime(value: string) {
   return new Date(value).toLocaleString("vi-VN", {

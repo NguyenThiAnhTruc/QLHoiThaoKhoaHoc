@@ -120,7 +120,13 @@ export function FundingPage() {
     try {
       const { error } = await supabase.from("fee_payments").update({ status }).eq("id", payment.id).eq("status", "pending").select("id").single();
       if (error) throw error;
-      showToast("success", "Đã duyệt khoản nộp"); await loadData(payment.conference_id);
+      showToast(
+        "success",
+        status === "accepted"
+          ? "Đã chấp nhận khoản nộp"
+          : "Đã từ chối khoản nộp",
+      );
+      await loadData(payment.conference_id);
     } catch { showToast("error", "Không thể duyệt. Khoản nộp có thể đã được xử lý."); }
     finally { setReviewingId(""); }
   }

@@ -14,7 +14,6 @@ import {
   X,
 } from "lucide-react";
 import { useAuth } from "@/context/useAuth";
-import { useConferenceAccess } from "@/context/useConferenceAccess";
 import { useRouter } from "@/context/useRouter";
 import { NotificationBell } from "@/components/NotificationBell";
 import type { PageKey } from "@/context/RouterContextCore";
@@ -41,12 +40,6 @@ const managementItems: NavItem[] = [
     icon: <CalendarDays className="h-5 w-5" />,
   },
   {
-    key: "topics",
-    label: "Chủ đề",
-    icon: <FileText className="h-5 w-5" />,
-    roles: ["admin", "organizer"],
-  },
-  {
     key: "funding",
     label: "Kinh phí",
     icon: <FileText className="h-5 w-5" />,
@@ -67,12 +60,6 @@ const managementItems: NavItem[] = [
     label: "Lịch trình",
     icon: <ScheduleIcon className="h-5 w-5" />,
     roles: ["admin", "organizer", "reviewer", "participant", "author"],
-  },
-  {
-    key: "participants",
-    label: "Người tham dự",
-    icon: <Users className="h-5 w-5" />,
-    roles: ["admin", "organizer"],
   },
   {
     key: "certificates",
@@ -102,16 +89,12 @@ const profileItem: NavItem = {
 
 export function Layout({ children }: { children: ReactNode }) {
   const { profile, signOut } = useAuth();
-  const { conferences } = useConferenceAccess();
   const { route, navigate } = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const canSee = (item: NavItem) =>
     !item.roles ||
-    (profile && item.roles.includes(profile.role)) ||
-    (item.key === "participants" && conferences.length > 0);
-  const personal =
-    conferences.length === 0 &&
-    (profile?.role === "author" || profile?.role === "participant");
+    profile && item.roles.includes(profile.role);
+  const personal = profile?.role === "author" || profile?.role === "participant";
   const visibleManagementItems = managementItems.filter(canSee).map((item) => ({
     ...item,
     label:
@@ -143,7 +126,7 @@ export function Layout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-[#effaf7]">
+    <div className="min-h-screen bg-slate-50">
       {sidebarOpen && (
         <div
           className="fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-sm lg:hidden"
@@ -154,7 +137,7 @@ export function Layout({ children }: { children: ReactNode }) {
       <aside
         className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col transform bg-slate-900 transition-transform duration-200 lg:translate-x-0 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}
       >
-        <div className="flex h-16 items-center gap-2.5 border-b border-slate-800 px-6">
+        <div className="flex h-16 items-center gap-2.5 border-b border-slate-800/80 px-6">
           <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-lg bg-white">
             <img
               src={logo}
@@ -271,7 +254,7 @@ export function Layout({ children }: { children: ReactNode }) {
           </div>
           <NotificationBell />
         </header>
-        <main className="min-h-[calc(100vh-4rem)] p-4 lg:p-8">{children}</main>
+        <main className="mx-auto min-h-[calc(100vh-4rem)] max-w-[1600px] p-4 lg:p-8">{children}</main>
       </div>
 
       {sidebarOpen && (

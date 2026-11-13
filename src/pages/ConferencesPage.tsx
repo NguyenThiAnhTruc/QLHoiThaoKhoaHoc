@@ -47,6 +47,7 @@ export function ConferencesPage() {
 
   const filtered = conferences.filter((c) => {
     const displayStatus = getConferenceDisplayStatus(c);
+    if (displayStatus === "completed") return false;
     const matchesSearch =
       !search ||
       c.title.toLowerCase().includes(search.toLowerCase()) ||

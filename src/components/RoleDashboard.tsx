@@ -259,12 +259,6 @@ export function RoleDashboard() {
                 </Button>
                 <Button
                   variant="outline"
-                  onClick={() => navigate("participants")}
-                >
-                  Quản lý đăng ký
-                </Button>
-                <Button
-                  variant="outline"
                   onClick={() => navigate("certificates")}
                 >
                   Cấp chứng nhận

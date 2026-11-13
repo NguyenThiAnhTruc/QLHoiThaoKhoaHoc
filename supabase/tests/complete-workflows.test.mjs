@@ -14,6 +14,7 @@ test('complete conference workflows enforce ownership, atomic writes and per-pap
   await db.exec(await read('../migrations/20260927_paper_status_consistency.sql'));
   const migration = await read('../migrations/20261008_complete_workflows.sql');
   await db.exec(migration); await db.exec(migration);
+  await db.exec(await read('../migrations/20261105_fee_payment_integrity.sql'));
   assert.equal((await db.query('SELECT count(*)::int AS count FROM auth.users')).rows[0].count,0);
   assert.equal((await db.query('SELECT count(*)::int AS count FROM conferences')).rows[0].count,0);
   const owner='f0000000-0000-0000-0000-000000000001';
@@ -129,6 +130,13 @@ test('complete conference workflows enforce ownership, atomic writes and per-pap
     await db.query("INSERT INTO fee_payments(fund_id,conference_id,payer_id,amount,proof_url) VALUES($1,$2,$3,100,'https://example.com/proof.pdf')",[fund,conf,owner]);
     await asUser(outsider);
     assert.equal(await scalar('SELECT count(*)::int FROM fee_payments WHERE conference_id=$1',[conf]),0);
+  });
+  await t.test('reviewed fee payments cannot be reopened or changed',async()=>{
+    await asUser(organizer);
+    const payment=await scalar('SELECT id FROM fee_payments WHERE conference_id=$1',[conf]);
+    await db.query("UPDATE fee_payments SET status='accepted' WHERE id=$1",[payment]);
+    await assert.rejects(db.query("UPDATE fee_payments SET status='pending' WHERE id=$1",[payment]));
+    await assert.rejects(db.query("UPDATE fee_payments SET status='rejected',amount=90 WHERE id=$1",[payment]));
   });
   await t.test('private receipt storage is visible only to payer and conference organizer',async()=>{
     const path=`${owner}/${other}/proof.pdf`;

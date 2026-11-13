@@ -12,7 +12,7 @@ try {
   await client.query('SELECT pg_advisory_lock(610082026)');
   const {rows}=await client.query("SELECT to_regclass('public.conferences') IS NOT NULL AS initialized");
   if(!rows[0].initialized)throw new Error('DATABASE_NOT_INITIALIZED');
-  for(const filename of ['20261008_complete_workflows.sql','20261008_seminar_experience.sql','20261009_certificate_consistency.sql','20261010_email_delivery_safety.sql','20261010_orphan_upload_cleanup.sql','20261011_certificate_verification.sql','20261011_review_revision.sql','20261011_audit_integrity.sql']) {
+  for(const filename of ['20261008_complete_workflows.sql','20261008_seminar_experience.sql','20261009_certificate_consistency.sql','20261010_email_delivery_safety.sql','20261010_orphan_upload_cleanup.sql','20261011_certificate_verification.sql','20261011_review_revision.sql','20261011_audit_integrity.sql','20261105_fee_payment_integrity.sql','20261105_session_roles_and_types.sql']) {
     await client.query(await readFile(new URL(`../supabase/migrations/${filename}`,import.meta.url),'utf8'));
     console.log(`Đã áp dụng ${filename}`);
   }

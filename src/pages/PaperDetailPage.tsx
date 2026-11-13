@@ -107,8 +107,8 @@ export function PaperDetailPage() {
         completedReviews.length
       : null;
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     setCanEdit(false);
     setCanEditSubmission(false);
     setFileLinks({});
@@ -118,9 +118,18 @@ export function PaperDetailPage() {
     const { data: p } = await supabase
       .rpc("read_papers")
       .eq("id", paperId)
-      .select("*, conference:conferences(*), submitted_by:profile_directory(*)")
+      .select("*, conference:conferences(*)")
       .maybeSingle();
-    if (p) setPaper(p as unknown as Paper);
+    let paperData = p;
+    if (p && typeof p.submitted_by === "string") {
+      const { data: submittedBy } = await supabase
+        .from("profile_directory")
+        .select("*")
+        .eq("id", p.submitted_by)
+        .maybeSingle();
+      if (submittedBy) paperData = { ...p, submitted_by: submittedBy };
+    }
+    if (paperData) setPaper(paperData as unknown as Paper);
     else setPaper(null);
     if (p) {
       const { data: canManage } = await supabase.rpc(
@@ -189,11 +198,15 @@ export function PaperDetailPage() {
     );
     setFileLinks(Object.fromEntries(links.filter(([, link]) => Boolean(link))));
 
-    setLoading(false);
+    if (!silent) setLoading(false);
   }, [paperId]);
 
   useEffect(() => {
-    load();
+    void load();
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === "visible") void load(true);
+    }, 10000);
+    return () => window.clearInterval(interval);
   }, [load]);
 
   async function handleStatusChange(newStatus: PaperStatus) {
@@ -448,7 +461,7 @@ export function PaperDetailPage() {
             <div>
               <h3 className="font-semibold text-slate-900">
                 {paper.status === "accepted"
-                  ? "Bản hoàn thiện (camera-ready)"
+                  ? "Bản hoàn thiện"
                   : "Chỉnh sửa bài báo"}
               </h3>
               <p className="mt-1 text-sm text-slate-500">
@@ -691,6 +704,12 @@ export function PaperDetailPage() {
             ) : (
               visibleReviews.map((review) => (
                 <div key={review.id} className="px-5 py-4">
+                  {(() => {
+                    const reviewStatusLabel =
+                      canEdit && review.status === "in_progress"
+                        ? "Đã xác nhận"
+                        : REVIEW_STATUS_LABELS[review.status];
+                    return (
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1">
                       {(!isPaperAuthor || canEdit || canReview) && (
@@ -748,7 +767,7 @@ export function PaperDetailPage() {
                     </div>
                     <div className="flex flex-col items-end gap-2">
                       <Badge className={REVIEW_STATUS_COLORS[review.status]}>
-                        {REVIEW_STATUS_LABELS[review.status]}
+                        {reviewStatusLabel}
                       </Badge>
                       <ReviewResponseActions
                         review={{ ...review, paper }}
@@ -775,6 +794,8 @@ export function PaperDetailPage() {
                       )}
                     </div>
                   </div>
+                    );
+                  })()}
                 </div>
               ))
             )}

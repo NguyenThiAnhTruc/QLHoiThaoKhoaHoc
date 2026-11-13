@@ -190,8 +190,17 @@ export function PaperFormPage({
   }, [conferenceId]);
 
   function nextStep() {
-    if (step === 0 && (!conferenceId || !title.trim() || !abstract.trim() || !keywords.trim())) {
-      showToast("error", "Chọn hội thảo và nhập tiêu đề, tóm tắt, từ khóa trước khi tiếp tục"); return;
+    if (step === 0 && !conferenceId) {
+      showToast("error", "Hội thảo không được để trống"); return;
+    }
+    if (step === 0 && !title.trim()) {
+      showToast("error", "Tiêu đề bài báo không được để trống"); return;
+    }
+    if (step === 0 && !abstract.trim()) {
+      showToast("error", "Tóm tắt bài báo không được để trống"); return;
+    }
+    if (step === 0 && !keywords.trim()) {
+      showToast("error", "Từ khóa không được để trống"); return;
     }
     if (step === 1 && (!mainAuthorId || (mainAuthorId !== ownerId && !selectedAuthorIds.includes(mainAuthorId)))) {
       showToast("error", "Chọn tác giả chính thuộc nhóm tác giả"); return;
@@ -202,8 +211,24 @@ export function PaperFormPage({
     e.preventDefault();
     if (submitting.current || !canSave) return;
     if (step < 2) { nextStep(); return; }
-    if (!conferenceId || !title.trim() || !abstract.trim() || !keywords.trim() || (!paperFile && !fileUrl.trim())) {
-      showToast("error", "Vui lòng chọn hội thảo, nhập tiêu đề, tóm tắt, từ khóa và file bài báo");
+    if (!conferenceId) {
+      showToast("error", "Hội thảo không được để trống");
+      return;
+    }
+    if (!title.trim()) {
+      showToast("error", "Tiêu đề bài báo không được để trống");
+      return;
+    }
+    if (!abstract.trim()) {
+      showToast("error", "Tóm tắt bài báo không được để trống");
+      return;
+    }
+    if (!keywords.trim()) {
+      showToast("error", "Từ khóa không được để trống");
+      return;
+    }
+    if (!paperFile && !fileUrl.trim()) {
+      showToast("error", "File hoặc đường dẫn bài báo không được để trống");
       return;
     }
     if (!mainAuthorId || (mainAuthorId !== ownerId && !selectedAuthorIds.includes(mainAuthorId))) {

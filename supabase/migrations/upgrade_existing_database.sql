@@ -878,6 +878,7 @@ NOTIFY pgrst, 'reload schema';
 
 -- BEGIN SECTION 20260925_reviewer_workflow
 -- Apply after 20260925_author_workflow.sql.
+UPDATE public.profiles SET role = 'author' WHERE role = 'participant';
 ALTER TABLE public.profiles DROP CONSTRAINT IF EXISTS profiles_role_check;
 ALTER TABLE public.profiles ADD CONSTRAINT profiles_role_check CHECK (role IN ('admin','organizer','author','reviewer'));
 CREATE OR REPLACE FUNCTION public.require_author_reviewer()
@@ -1908,6 +1909,75 @@ REVOKE ALL ON FUNCTION public.validate_resource() FROM PUBLIC,anon,authenticated
 NOTIFY pgrst,'reload schema';
 
 
+-- SOURCE: 20261009_remove_participant_role.sql
+-- Keep conference registrations; retire only the participant account role.
+UPDATE public.profiles SET role = 'author' WHERE role = 'participant';
+ALTER TABLE public.profiles ALTER COLUMN role SET DEFAULT 'author';
+ALTER TABLE public.profiles DROP CONSTRAINT IF EXISTS profiles_role_check;
+ALTER TABLE public.profiles ADD CONSTRAINT profiles_role_check
+  CHECK (role IN ('admin', 'organizer', 'author', 'reviewer'));
+
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  INSERT INTO public.profiles (id, full_name, role)
+  VALUES (
+    NEW.id,
+    COALESCE(NEW.raw_user_meta_data->>'full_name', ''),
+    'author'
+  )
+  ON CONFLICT (id) DO NOTHING;
+  RETURN NEW;
+END;
+$$;
+
+DROP POLICY IF EXISTS profiles_insert_own ON public.profiles;
+CREATE POLICY profiles_insert_own ON public.profiles FOR INSERT TO authenticated
+  WITH CHECK (auth.uid() = id AND role = 'author');
+
+CREATE OR REPLACE FUNCTION public.submit_organizer_request(request_reason text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE current_role text;
+BEGIN
+  SELECT role INTO current_role FROM public.profiles WHERE id = auth.uid() FOR UPDATE;
+  IF current_role IS NULL OR current_role <> 'author' THEN
+    RAISE EXCEPTION 'Chỉ tác giả được gửi yêu cầu';
+  END IF;
+  IF request_reason IS NULL OR char_length(btrim(request_reason)) NOT BETWEEN 10 AND 2000 THEN
+    RAISE EXCEPTION 'Lý do phải có từ 10 đến 2000 ký tự';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.organizer_requests WHERE user_id = auth.uid() AND status = 'pending') THEN
+    RAISE EXCEPTION 'Bạn đã có yêu cầu đang chờ duyệt';
+  END IF;
+  INSERT INTO public.organizer_requests(user_id, reason) VALUES (auth.uid(), btrim(request_reason));
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.review_organizer_request(request_id uuid, approve boolean, decision_note text DEFAULT '')
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE request_row public.organizer_requests; target_role text;
+BEGIN
+  IF auth.uid() IS NULL OR NOT public.is_admin() THEN RAISE EXCEPTION 'Chỉ admin được duyệt yêu cầu'; END IF;
+  IF approve IS NULL THEN RAISE EXCEPTION 'Quyết định không hợp lệ'; END IF;
+  IF char_length(coalesce(decision_note, '')) > 2000 THEN RAISE EXCEPTION 'Ghi chú quá dài'; END IF;
+  IF NOT approve AND length(btrim(coalesce(decision_note, ''))) = 0 THEN RAISE EXCEPTION 'Vui lòng nhập lý do từ chối'; END IF;
+  SELECT * INTO request_row FROM public.organizer_requests WHERE id = request_id FOR UPDATE;
+  IF NOT FOUND OR request_row.status <> 'pending' THEN RAISE EXCEPTION 'Yêu cầu không còn chờ duyệt'; END IF;
+  IF request_row.user_id = auth.uid() THEN RAISE EXCEPTION 'Không thể tự duyệt yêu cầu'; END IF;
+  SELECT role INTO target_role FROM public.profiles WHERE id = request_row.user_id FOR UPDATE;
+  IF approve THEN
+    IF target_role NOT IN ('author', 'organizer') THEN RAISE EXCEPTION 'Vai trò tài khoản đã thay đổi, hãy từ chối yêu cầu'; END IF;
+    UPDATE public.profiles SET role = 'organizer' WHERE id = request_row.user_id AND role <> 'organizer';
+  END IF;
+  UPDATE public.organizer_requests SET status = CASE WHEN approve THEN 'approved' ELSE 'rejected' END,
+    review_note = btrim(coalesce(decision_note)), reviewed_by = auth.uid(), reviewed_at = now()
+    WHERE id = request_id;
+END;
+$$;
+
+NOTIFY pgrst, 'reload schema';
+
 -- SOURCE: 20261009_certificate_consistency.sql
 -- Apply after 20261008_seminar_experience.sql. Existing certificates are retained.
 
@@ -2174,5 +2244,642 @@ REVOKE ALL ON FUNCTION public.write_audit_log(text,text,uuid,jsonb) FROM PUBLIC,
 GRANT EXECUTE ON FUNCTION public.write_audit_log(text,text,uuid,jsonb) TO service_role;
 NOTIFY pgrst,'reload schema';
 
+
+-- SOURCE: 20261104_certificate_confirmation_workflow.sql
+-- Two-step certificate workflow:
+-- organizer creates a certificate record, the recipient confirms its details,
+-- then the organizer approves and publishes it.
+ALTER TABLE public.certificates
+  ADD COLUMN IF NOT EXISTS workflow_status text NOT NULL DEFAULT 'issued',
+  ADD COLUMN IF NOT EXISTS confirmed_name text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS confirmed_organization text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS submitted_at timestamptz,
+  ADD COLUMN IF NOT EXISTS reviewed_by uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS reviewed_at timestamptz,
+  ADD COLUMN IF NOT EXISTS review_notes text NOT NULL DEFAULT '';
+
+UPDATE public.certificates
+SET workflow_status = 'issued'
+WHERE workflow_status IS NULL OR workflow_status = '';
+
+ALTER TABLE public.certificates DROP CONSTRAINT IF EXISTS certificates_workflow_status_check;
+ALTER TABLE public.certificates ADD CONSTRAINT certificates_workflow_status_check
+  CHECK (workflow_status IN ('pending_confirmation', 'submitted', 'issued', 'needs_changes', 'revoked'));
+
+CREATE OR REPLACE FUNCTION public.issue_certificates_bulk(conf_id uuid, cert_type text, recipient_ids uuid[])
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE issued integer;
+BEGIN
+  IF auth.uid() IS NULL OR NOT public.is_conference_organizer(conf_id) THEN
+    RAISE EXCEPTION 'Bạn không có quyền tạo hồ sơ chứng nhận' USING ERRCODE = '42501';
+  END IF;
+  IF cert_type IS DISTINCT FROM 'attendance' THEN
+    RAISE EXCEPTION 'Chứng nhận báo cáo phải chọn bài báo cụ thể' USING ERRCODE = '23514';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM unnest(coalesce(recipient_ids, ARRAY[]::uuid[])) r
+    WHERE r IS NULL OR NOT public.is_certificate_eligible(conf_id, r, 'attendance')
+  ) THEN
+    RAISE EXCEPTION 'Danh sách có người chưa đủ điều kiện; chưa tạo hồ sơ nào' USING ERRCODE = '23514';
+  END IF;
+  INSERT INTO public.certificates(conference_id, user_id, certificate_type, issued_by, attendance_minutes, workflow_status)
+    SELECT conf_id, r, 'attendance', auth.uid(), public.measured_attendance_minutes(conf_id, r), 'pending_confirmation'
+    FROM (SELECT DISTINCT unnest(coalesce(recipient_ids, ARRAY[]::uuid[])) r) recipients
+    ON CONFLICT DO NOTHING;
+  GET DIAGNOSTICS issued = ROW_COUNT;
+  RETURN issued;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.issue_paper_certificates(conf_id uuid, target_paper_id uuid, recipient_ids uuid[])
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE recipient uuid; issued integer := 0;
+BEGIN
+  IF auth.uid() IS NULL OR NOT public.is_conference_organizer(conf_id) THEN
+    RAISE EXCEPTION 'Bạn không có quyền tạo hồ sơ chứng nhận' USING ERRCODE = '42501';
+  END IF;
+  FOREACH recipient IN ARRAY coalesce(recipient_ids, ARRAY[]::uuid[]) LOOP
+    IF NOT public.is_paper_certificate_eligible(conf_id, recipient, target_paper_id) THEN
+      RAISE EXCEPTION 'Người nhận không đủ điều kiện cho bài đã chọn';
+    END IF;
+    INSERT INTO public.certificates(conference_id, user_id, certificate_type, issued_by, paper_id, workflow_status)
+      VALUES(conf_id, recipient, 'presentation', auth.uid(), target_paper_id, 'pending_confirmation')
+      ON CONFLICT DO NOTHING;
+    IF FOUND THEN issued := issued + 1; END IF;
+  END LOOP;
+  RETURN issued;
+END $$;
+
+CREATE INDEX IF NOT EXISTS certificates_workflow_status_idx
+  ON public.certificates(workflow_status, conference_id);
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime')
+     AND NOT EXISTS (
+       SELECT 1
+       FROM pg_publication_tables
+       WHERE pubname = 'supabase_realtime'
+         AND schemaname = 'public'
+         AND tablename = 'certificates'
+     ) THEN
+    EXECUTE 'ALTER PUBLICATION supabase_realtime ADD TABLE public.certificates';
+  END IF;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.default_certificate_confirmation_status()
+RETURNS trigger LANGUAGE plpgsql SET search_path = public AS $$
+BEGIN
+  IF NEW.workflow_status = 'issued' AND NEW.issued_by IS NULL THEN
+    NEW.workflow_status := 'pending_confirmation';
+  END IF;
+  RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS default_certificate_confirmation_status ON public.certificates;
+CREATE TRIGGER default_certificate_confirmation_status
+BEFORE INSERT ON public.certificates
+FOR EACH ROW EXECUTE FUNCTION public.default_certificate_confirmation_status();
+
+CREATE OR REPLACE FUNCTION public.mark_certificate_revoked()
+RETURNS trigger LANGUAGE plpgsql SET search_path = public AS $$
+BEGIN
+  IF NEW.revoked_at IS NOT NULL THEN NEW.workflow_status := 'revoked'; END IF;
+  RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS mark_certificate_revoked ON public.certificates;
+CREATE TRIGGER mark_certificate_revoked
+BEFORE UPDATE OF revoked_at ON public.certificates
+FOR EACH ROW EXECUTE FUNCTION public.mark_certificate_revoked();
+
+CREATE OR REPLACE FUNCTION public.verify_certificate(lookup_number text)
+RETURNS TABLE(certificate_number text, certificate_type text, issued_at timestamptz, recipient_name text, recipient_organization text, conference_title text, conference_start_date date, conference_end_date date)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT c.certificate_number, c.certificate_type, c.issued_at,
+    coalesce(nullif(c.confirmed_name, ''), p.full_name),
+    coalesce(nullif(c.confirmed_organization, ''), p.organization),
+    e.title, (e.start_date AT TIME ZONE 'Asia/Ho_Chi_Minh')::date,
+    (e.end_date AT TIME ZONE 'Asia/Ho_Chi_Minh')::date
+  FROM public.certificates c
+  JOIN public.profiles p ON p.id = c.user_id
+  JOIN public.conferences e ON e.id = c.conference_id
+  WHERE c.certificate_number = lookup_number
+    AND c.workflow_status = 'issued' AND c.revoked_at IS NULL
+  LIMIT 1;
+$$;
+
+CREATE OR REPLACE FUNCTION public.verify_certificate(token uuid)
+RETURNS TABLE(certificate_number text, conference_title text, certificate_type text, issued_at timestamptz, revoked_at timestamptz)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT c.certificate_number, e.title, c.certificate_type, c.issued_at, c.revoked_at
+  FROM public.certificates c
+  JOIN public.conferences e ON e.id = c.conference_id
+  WHERE c.verification_token = token AND c.workflow_status = 'issued';
+$$;
+
+DROP POLICY IF EXISTS certificates_update_confirmation ON public.certificates;
+
+CREATE OR REPLACE FUNCTION public.submit_certificate_confirmation(
+  target_certificate_id uuid,
+  recipient_name text,
+  recipient_organization text
+) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  v_recipient_name text := $2;
+  v_recipient_organization text := $3;
+BEGIN
+  IF length(btrim(coalesce(v_recipient_name, ''))) < 2 THEN
+    RAISE EXCEPTION 'Họ tên xác nhận không hợp lệ';
+  END IF;
+  UPDATE public.certificates
+  SET confirmed_name = btrim(v_recipient_name),
+      confirmed_organization = btrim(coalesce(v_recipient_organization, '')),
+      workflow_status = 'submitted',
+      submitted_at = now(),
+      review_notes = ''
+  WHERE id = target_certificate_id
+    AND user_id = auth.uid()
+    AND revoked_at IS NULL
+    AND workflow_status IN ('pending_confirmation', 'needs_changes', 'issued');
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Chứng nhận không tồn tại, không thuộc tài khoản này hoặc không còn chờ xác nhận';
+  END IF;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.approve_certificate_confirmation(
+  target_certificate_id uuid,
+  approval_note text DEFAULT ''
+) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  IF auth.uid() IS NULL OR NOT EXISTS (
+    SELECT 1 FROM public.certificates c
+    WHERE c.id = target_certificate_id AND public.is_conference_organizer(c.conference_id)
+  ) THEN
+    RAISE EXCEPTION 'Bạn không có quyền duyệt chứng nhận' USING ERRCODE = '42501';
+  END IF;
+  UPDATE public.certificates
+  SET workflow_status = 'issued',
+      issued_by = auth.uid(),
+      reviewed_by = auth.uid(),
+      reviewed_at = now(),
+      review_notes = btrim(coalesce(approval_note, ''))
+  WHERE id = target_certificate_id AND workflow_status = 'submitted';
+  IF NOT FOUND THEN RAISE EXCEPTION 'Chứng nhận chưa được tác giả gửi xác nhận'; END IF;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.request_certificate_changes(
+  target_certificate_id uuid,
+  change_note text
+) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  IF auth.uid() IS NULL OR NOT EXISTS (
+    SELECT 1 FROM public.certificates c
+    WHERE c.id = target_certificate_id AND public.is_conference_organizer(c.conference_id)
+  ) THEN
+    RAISE EXCEPTION 'Bạn không có quyền yêu cầu chỉnh sửa chứng nhận' USING ERRCODE = '42501';
+  END IF;
+  IF length(btrim(coalesce(change_note, ''))) < 3 THEN
+    RAISE EXCEPTION 'Vui lòng nhập lý do yêu cầu chỉnh sửa';
+  END IF;
+  UPDATE public.certificates
+  SET workflow_status = 'needs_changes',
+      reviewed_by = auth.uid(),
+      reviewed_at = now(),
+      review_notes = btrim(change_note)
+  WHERE id = target_certificate_id AND workflow_status = 'submitted';
+  IF NOT FOUND THEN RAISE EXCEPTION 'Chứng nhận chưa được tác giả gửi xác nhận'; END IF;
+END $$;
+
+REVOKE ALL ON FUNCTION public.submit_certificate_confirmation(uuid,text,text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.approve_certificate_confirmation(uuid,text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.request_certificate_changes(uuid,text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.submit_certificate_confirmation(uuid,text,text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.approve_certificate_confirmation(uuid,text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.request_certificate_changes(uuid,text) TO authenticated;
+NOTIFY pgrst, 'reload schema';
+
+-- SOURCE: 20261105_fee_payment_integrity.sql
+-- Keep fee payment reviews one-way and prevent direct API updates from
+-- reopening or changing an already reviewed payment.
+CREATE OR REPLACE FUNCTION public.validate_fee_payment()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF auth.uid() IS NOT NULL AND NEW.payer_id <> auth.uid() THEN
+      RAISE EXCEPTION 'Người nộp không hợp lệ';
+    END IF;
+    IF NEW.status <> 'pending' OR NEW.reviewed_by IS NOT NULL OR NEW.reviewed_at IS NOT NULL THEN
+      RAISE EXCEPTION 'Khoản nộp mới phải chờ duyệt';
+    END IF;
+  ELSE
+    IF OLD.status <> 'pending' OR NEW.status NOT IN ('accepted', 'rejected') THEN
+      RAISE EXCEPTION 'Khoản nộp chỉ được chuyển từ chờ duyệt sang đã chấp nhận hoặc từ chối';
+    END IF;
+    IF NEW.fund_id <> OLD.fund_id
+      OR NEW.conference_id <> OLD.conference_id
+      OR NEW.payer_id <> OLD.payer_id
+      OR NEW.amount <> OLD.amount
+      OR NEW.proof_url <> OLD.proof_url
+      OR NEW.purpose <> OLD.purpose THEN
+      RAISE EXCEPTION 'Không thể thay đổi nội dung khoản nộp khi duyệt';
+    END IF;
+    NEW.reviewed_by := auth.uid();
+    NEW.reviewed_at := now();
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM public.conference_funds f
+    WHERE f.id = NEW.fund_id
+      AND f.conference_id = NEW.conference_id
+  ) THEN
+    RAISE EXCEPTION 'Quỹ phí không thuộc hội thảo';
+  END IF;
+  IF btrim(NEW.proof_url) = '' THEN
+    RAISE EXCEPTION 'Vui lòng nộp minh chứng';
+  END IF;
+  IF NEW.proof_url !~* '^https?://[^[:space:]]+$'
+    AND NOT EXISTS (
+      SELECT 1
+      FROM storage.objects o
+      WHERE o.bucket_id = 'fee-proofs'
+        AND o.name = NEW.proof_url
+        AND split_part(o.name, '/', 1) = NEW.payer_id::text
+        AND split_part(o.name, '/', 2) = NEW.conference_id::text
+    ) THEN
+    RAISE EXCEPTION 'Minh chứng không hợp lệ';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS validate_fee_payment ON public.fee_payments;
+CREATE TRIGGER validate_fee_payment
+BEFORE INSERT OR UPDATE ON public.fee_payments
+FOR EACH ROW EXECUTE FUNCTION public.validate_fee_payment();
+
+REVOKE ALL ON FUNCTION public.validate_fee_payment() FROM PUBLIC, anon, authenticated;
+NOTIFY pgrst, 'reload schema';
+
+-- SOURCE: 20261105_session_roles_and_types.sql
+-- Model conference sessions explicitly as opening, reporting, or closing sessions.
+ALTER TABLE public.conference_committees
+  ADD COLUMN IF NOT EXISTS topic_id uuid REFERENCES public.conference_topics(id) ON DELETE SET NULL;
+
+ALTER TABLE public.sessions
+  ADD COLUMN IF NOT EXISTS session_type text NOT NULL DEFAULT 'reporting'
+    CHECK (session_type IN ('opening', 'reporting', 'closing')),
+  ADD COLUMN IF NOT EXISTS chair_id uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS secretary_id uuid REFERENCES public.profiles(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_conference_committees_topic ON public.conference_committees(topic_id);
+
+CREATE OR REPLACE FUNCTION public.validate_session_assignment()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  committee_conference uuid;
+BEGIN
+  IF NEW.committee_id IS NOT NULL THEN
+    SELECT conference_id INTO committee_conference
+    FROM public.conference_committees
+    WHERE id = NEW.committee_id;
+    IF committee_conference IS NULL OR committee_conference <> NEW.conference_id THEN
+      RAISE EXCEPTION 'Tiểu ban không thuộc hội thảo';
+    END IF;
+  END IF;
+
+  IF NEW.session_type <> 'reporting' AND (NEW.committee_id IS NOT NULL OR NEW.paper_id IS NOT NULL) THEN
+    RAISE EXCEPTION 'Chỉ phiên báo cáo mới có tiểu ban hoặc bài báo';
+  END IF;
+
+  IF NEW.paper_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1
+    FROM public.papers p
+    WHERE p.id = NEW.paper_id
+      AND p.conference_id = NEW.conference_id
+      AND p.status = 'accepted'
+      AND (
+        NEW.committee_id IS NULL
+        OR EXISTS (
+          SELECT 1
+          FROM public.paper_topics pt
+          JOIN public.conference_committees cc ON cc.id = NEW.committee_id
+          WHERE pt.paper_id = p.id
+            AND cc.topic_id = pt.topic_id
+        )
+      )
+  ) THEN
+    RAISE EXCEPTION 'Bài báo phải được chấp nhận và thuộc chủ đề của tiểu ban';
+  END IF;
+
+  IF NEW.speaker_id IS NOT NULL AND NEW.paper_id IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1
+      FROM public.papers p
+      WHERE p.id = NEW.paper_id
+        AND (
+          p.submitted_by = NEW.speaker_id
+          OR EXISTS (
+            SELECT 1
+            FROM public.paper_authors pa
+            WHERE pa.paper_id = NEW.paper_id AND pa.user_id = NEW.speaker_id
+          )
+        )
+    ) THEN
+    RAISE EXCEPTION 'Báo cáo viên phải là tác giả của bài báo';
+  END IF;
+
+  IF NEW.chair_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM public.conferences c
+    WHERE c.id = NEW.conference_id AND c.organizer_id = NEW.chair_id
+    UNION ALL
+    SELECT 1 FROM public.conference_staff cs
+    WHERE cs.conference_id = NEW.conference_id AND cs.user_id = NEW.chair_id
+  ) THEN
+    RAISE EXCEPTION 'Chủ trì phải thuộc ban tổ chức hoặc ban thư ký';
+  END IF;
+  IF NEW.secretary_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM public.conferences c
+    WHERE c.id = NEW.conference_id AND c.organizer_id = NEW.secretary_id
+    UNION ALL
+    SELECT 1 FROM public.conference_staff cs
+    WHERE cs.conference_id = NEW.conference_id AND cs.user_id = NEW.secretary_id
+  ) THEN
+    RAISE EXCEPTION 'Thư ký phải thuộc ban tổ chức hoặc ban thư ký';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS validate_session_assignment ON public.sessions;
+CREATE TRIGGER validate_session_assignment
+BEFORE INSERT OR UPDATE ON public.sessions
+FOR EACH ROW EXECUTE FUNCTION public.validate_session_assignment();
+
+NOTIFY pgrst, 'reload schema';
+
+-- SOURCE: 20261112_paper_submission_rpc_access.sql
+-- Restore the authenticated RPC grant for existing databases.
+-- This does not change data or bypass row-level security.
+GRANT USAGE ON SCHEMA public TO authenticated;
+GRANT EXECUTE ON FUNCTION public.save_complete_paper_submission(
+  uuid, uuid, text, text, text, text, uuid[], text, timestamptz,
+  uuid[], jsonb, text, text, text, uuid
+) TO authenticated;
+
+NOTIFY pgrst, 'reload schema';
+
+-- SOURCE: 20261113_presentation_certificate_registration.sql
+-- A presentation certificate requires registration, not check-in.
+CREATE OR REPLACE FUNCTION public.is_paper_certificate_eligible(
+  conf_id uuid,
+  recipient_id uuid,
+  target_paper_id uuid
+) RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.papers p
+    JOIN public.conferences c ON c.id = p.conference_id
+    WHERE p.id = target_paper_id
+      AND p.conference_id = conf_id
+      AND p.status = 'accepted'
+      AND c.end_date <= now()
+      AND c.status <> 'cancelled'
+      AND (
+        (p.submitted_by = recipient_id AND p.author_participation_status = 'participating')
+        OR EXISTS (
+          SELECT 1
+          FROM public.paper_authors a
+          WHERE a.paper_id = p.id
+            AND a.user_id = recipient_id
+            AND a.participation_status = 'participating'
+        )
+      )
+      AND EXISTS (
+        SELECT 1
+        FROM public.participants a
+        WHERE a.conference_id = conf_id
+          AND a.user_id = recipient_id
+      )
+      AND EXISTS (
+        SELECT 1
+        FROM public.sessions s
+        WHERE s.conference_id = conf_id
+          AND s.paper_id = p.id
+          AND s.end_time <= now()
+      )
+  );
+$$;
+
+-- SOURCE: 20261113_paper_group_certificate.sql
+-- Issue one presentation certificate per paper group to its registered representative.
+CREATE OR REPLACE FUNCTION public.paper_certificate_representative(
+  conf_id uuid,
+  target_paper_id uuid
+) RETURNS uuid
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $$
+  SELECT CASE
+    WHEN p.corresponding_author_id IS NOT NULL
+      AND EXISTS (
+        SELECT 1
+        FROM public.participants a
+        WHERE a.conference_id = conf_id
+          AND a.user_id = p.corresponding_author_id
+      )
+      THEN p.corresponding_author_id
+    WHEN p.submitted_by IS NOT NULL
+      AND EXISTS (
+        SELECT 1
+        FROM public.participants a
+        WHERE a.conference_id = conf_id
+          AND a.user_id = p.submitted_by
+      )
+      THEN p.submitted_by
+    ELSE NULL
+  END
+  FROM public.papers p
+  WHERE p.id = target_paper_id
+    AND p.conference_id = conf_id;
+$$;
+
+CREATE OR REPLACE FUNCTION public.is_paper_certificate_eligible(
+  conf_id uuid,
+  recipient_id uuid,
+  target_paper_id uuid
+) RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.papers p
+    JOIN public.conferences c ON c.id = p.conference_id
+    WHERE p.id = target_paper_id
+      AND p.conference_id = conf_id
+      AND p.status = 'accepted'
+      AND c.end_date <= now()
+      AND c.status <> 'cancelled'
+      AND public.paper_certificate_representative(conf_id, target_paper_id) = recipient_id
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION public.paper_certificate_recipients(
+  conf_id uuid,
+  target_paper_id uuid
+) RETURNS TABLE(user_id uuid, full_name text, role text)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $$
+  SELECT p.id, p.full_name, p.role
+  FROM public.profiles p
+  WHERE p.id = public.paper_certificate_representative(conf_id, target_paper_id)
+    AND NOT EXISTS (
+      SELECT 1
+      FROM public.certificates c
+      WHERE c.conference_id = conf_id
+        AND c.user_id = p.id
+        AND c.certificate_type = 'presentation'
+        AND c.paper_id = target_paper_id
+    )
+  ORDER BY p.full_name, p.id;
+$$;
+
+REVOKE ALL ON FUNCTION public.paper_certificate_representative(uuid, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.paper_certificate_representative(uuid, uuid) TO authenticated;
+REVOKE ALL ON FUNCTION public.paper_certificate_recipients(uuid, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.paper_certificate_recipients(uuid, uuid) TO authenticated;
+
+-- SOURCE: 20261113_paper_individual_certificates.sql
+-- Issue one presentation certificate to every participating author in the paper group.
+CREATE OR REPLACE FUNCTION public.is_paper_certificate_eligible(
+  conf_id uuid,
+  recipient_id uuid,
+  target_paper_id uuid
+) RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.papers p
+    JOIN public.conferences c ON c.id = p.conference_id
+    WHERE p.id = target_paper_id
+      AND p.conference_id = conf_id
+      AND p.status = 'accepted'
+      AND c.end_date <= now()
+      AND c.status <> 'cancelled'
+      AND (
+        (p.submitted_by = recipient_id AND p.author_participation_status = 'participating')
+        OR EXISTS (
+          SELECT 1
+          FROM public.paper_authors a
+          WHERE a.paper_id = p.id
+            AND a.user_id = recipient_id
+            AND a.participation_status = 'participating'
+        )
+      )
+      AND EXISTS (
+        SELECT 1
+        FROM public.sessions s
+        WHERE s.conference_id = conf_id
+          AND s.paper_id = p.id
+          AND s.end_time <= now()
+      )
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION public.paper_certificate_recipients(
+  conf_id uuid,
+  target_paper_id uuid
+) RETURNS TABLE(user_id uuid, full_name text, role text)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $$
+  SELECT p.id, p.full_name, p.role
+  FROM public.profiles p
+  WHERE public.is_paper_certificate_eligible(conf_id, p.id, target_paper_id)
+    AND NOT EXISTS (
+      SELECT 1
+      FROM public.certificates c
+      WHERE c.conference_id = conf_id
+        AND c.user_id = p.id
+        AND c.certificate_type = 'presentation'
+        AND c.paper_id = target_paper_id
+    )
+  ORDER BY p.full_name, p.id;
+$$;
+
+CREATE OR REPLACE FUNCTION public.issue_paper_certificates(
+  conf_id uuid,
+  target_paper_id uuid,
+  recipient_ids uuid[]
+) RETURNS integer
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE issued integer;
+BEGIN
+  IF auth.uid() IS NULL OR NOT public.is_conference_organizer(conf_id) THEN
+    RAISE EXCEPTION 'Bạn không có quyền tạo hồ sơ chứng nhận' USING ERRCODE = '42501';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1
+    FROM public.paper_certificate_recipients(conf_id, target_paper_id)
+  ) THEN
+    RAISE EXCEPTION 'Nhóm tác giả chưa có thành viên đủ điều kiện';
+  END IF;
+
+  INSERT INTO public.certificates(
+    conference_id, user_id, certificate_type, issued_by, paper_id, workflow_status
+  )
+  SELECT conf_id, r.user_id, 'presentation', auth.uid(), target_paper_id, 'pending_confirmation'
+  FROM public.paper_certificate_recipients(conf_id, target_paper_id) r
+  ON CONFLICT DO NOTHING;
+  GET DIAGNOSTICS issued = ROW_COUNT;
+  RETURN issued;
+END;
+$$;
+
+NOTIFY pgrst, 'reload schema';
+
+-- SOURCE: 20261113_session_upload_window.sql
+-- Lock speaker uploads once the conference has started; organizers may still update resources.
+CREATE OR REPLACE FUNCTION public.can_upload_session_documents(target_session_id uuid)
+RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $$
+  SELECT auth.uid() IS NOT NULL AND EXISTS (
+    SELECT 1
+    FROM public.sessions s
+    JOIN public.conferences c ON c.id = s.conference_id
+    LEFT JOIN public.papers p ON p.id = s.paper_id
+    WHERE s.id = target_session_id
+      AND (
+        public.is_conference_organizer(s.conference_id)
+        OR (
+          now() < c.start_date
+          AND now() <= coalesce(s.resource_deadline, s.start_time)
+          AND (
+            s.speaker_id = auth.uid()
+            OR (
+              p.status = 'accepted'
+              AND (
+                p.submitted_by = auth.uid()
+                OR EXISTS (
+                  SELECT 1
+                  FROM public.paper_authors a
+                  WHERE a.paper_id = p.id
+                    AND a.user_id = auth.uid()
+                    AND a.participation_status = 'participating'
+                )
+              )
+            )
+          )
+        )
+      )
+  );
+$$;
+
+NOTIFY pgrst, 'reload schema';
 NOTIFY pgrst, 'reload schema';
 COMMIT;

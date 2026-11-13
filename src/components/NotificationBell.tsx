@@ -49,9 +49,17 @@ export function NotificationBell() {
     const requests = requestId;
     setNotifications([]);
     setUnreadCount(0);
-    void loadNotifications();
-    const interval = window.setInterval(() => { void loadNotifications(); }, 30000);
-    return () => { window.clearInterval(interval); requests.current++; };
+    const refresh = () => {
+      if (document.visibilityState === 'visible') void loadNotifications();
+    };
+    refresh();
+    const interval = window.setInterval(refresh, 30000);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', refresh);
+      requests.current++;
+    };
   }, [loadNotifications]);
 
   async function toggle() {

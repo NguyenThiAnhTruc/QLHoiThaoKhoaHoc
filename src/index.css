@@ -5,12 +5,26 @@
 @layer base {
   body {
     @apply text-slate-900 antialiased;
-    background-color: #effaf7;
+    background:
+      radial-gradient(circle at 8% 0%, rgba(20, 184, 166, 0.08), transparent 28rem),
+      #f8fafc;
     font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   }
 
   * {
     @apply border-slate-200;
+  }
+
+  ::selection {
+    @apply bg-teal-100 text-teal-950;
+  }
+
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/40 focus-visible:ring-offset-2;
   }
 }
 

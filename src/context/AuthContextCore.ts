@@ -8,7 +8,11 @@ export interface AuthContextValue {
   loading: boolean;
   profileError: string;
   authEvent: AuthChangeEvent | null;
-  signIn: (email: string, password: string, remember?: boolean) => Promise<{ error: string | null }>;
+  signIn: (
+    email: string,
+    password: string,
+    remember?: boolean,
+  ) => Promise<{ error: { code: string | null; message: string } | null }>;
   signInWithGoogle: (remember?: boolean) => Promise<{ error: string | null }>;
   signUp: (
     email: string,
